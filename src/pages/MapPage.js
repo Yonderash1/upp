@@ -6,7 +6,6 @@ import 'leaflet/dist/leaflet.css'
 import { supabase } from '../lib/supabase'
 import { format } from 'date-fns'
 
-// Fix Leaflet default icon
 delete L.Icon.Default.prototype._getIconUrl
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
@@ -51,7 +50,7 @@ export default function MapPage() {
 
     navigator.geolocation?.getCurrentPosition(
       pos => setUserPos([pos.coords.latitude, pos.coords.longitude]),
-      () => setUserPos([54.5, -3]) // UK fallback
+      () => setUserPos([54.5, -3])
     )
   }, [])
 
@@ -65,8 +64,8 @@ export default function MapPage() {
           zoomControl={false}
         >
           <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a>'
-            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
           {userPos && <LocationSetter userPos={userPos} />}
 
@@ -101,7 +100,6 @@ export default function MapPage() {
           ))}
         </MapContainer>
 
-        {/* Sidebar */}
         <div className="map-sidebar">
           <div style={{
             background: 'rgba(10,10,15,0.92)',
