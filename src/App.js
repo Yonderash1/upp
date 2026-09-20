@@ -7,6 +7,10 @@ import MapPage from './pages/MapPage'
 import CreateEvent from './pages/CreateEvent'
 import EventDetail from './pages/EventDetail'
 import Profile from './pages/Profile'
+import Groups from './pages/Groups'
+import CreateGroup from './pages/CreateGroup'
+import GroupDetail from './pages/GroupDetail'
+import GroupSettings from './pages/GroupSettings'
 import Navbar from './components/Navbar'
 import './App.css'
 
@@ -35,6 +39,10 @@ function AppRoutes() {
         <Route path="/create" element={<ProtectedRoute><CreateEvent /></ProtectedRoute>} />
         <Route path="/event/:id" element={<ProtectedRoute><EventDetail /></ProtectedRoute>} />
         <Route path="/profile/:id" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+        <Route path="/groups" element={<ProtectedRoute><Groups /></ProtectedRoute>} />
+        <Route path="/groups/create" element={<ProtectedRoute><CreateGroup /></ProtectedRoute>} />
+        <Route path="/groups/:id" element={<ProtectedRoute><GroupDetail /></ProtectedRoute>} />
+        <Route path="/groups/:id/settings" element={<ProtectedRoute><GroupSettings /></ProtectedRoute>} />
       </Routes>
     </>
   )
