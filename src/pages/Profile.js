@@ -2,13 +2,25 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { format } from 'date-fns'
+
+const roleLabel = {
+  creator: '⭐ Creator',
+  owner: '👑 Owner',
+  admin: '⚡ Admin',
+  member: 'Member'
+}
+
+const roleColor = {
+  creator: 'var(--accent)',
+  owner: '#f39c12',
+  admin: '#9b59b6',
+  member: 'var(--muted)'
+}
 
 export default function Profile() {
   const { id } = useParams()
   const [profile, setProfile] = useState(null)
-  const [events, setEvents] = useState([])
-  const [attending, setAttending] = useState([])
+  const [memberships, setMemberships] = useState([])
   const [loading, setLoading] = useState(true)
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
@@ -16,9 +28,8 @@ export default function Profile() {
 
   useEffect(() => {
     fetchProfile()
-    fetchUserEvents()
-    fetchAttending()
-  }, [id])
+    fetchMemberships()
+  }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function fetchProfile() {
     const { data } = await supabase.from('profiles').select('*').eq('id', id).single()
@@ -26,21 +37,13 @@ export default function Profile() {
     setLoading(false)
   }
 
-  async function fetchUserEvents() {
+  async function fetchMemberships() {
     const { data } = await supabase
-      .from('events')
-      .select('*')
+      .from('group_members')
+      .select('role, groups(id, name, description)')
       .eq('user_id', id)
-      .order('event_date', { ascending: false })
-    setEvents(data || [])
-  }
-
-  async function fetchAttending() {
-    const { data } = await supabase
-      .from('attendees')
-      .select('events(*)')
-      .eq('user_id', id)
-    setAttending((data || []).map(a => a.events).filter(Boolean))
+      .order('joined_at', { ascending: true })
+    setMemberships(data || [])
   }
 
   if (loading) return <div className="loading-screen"><div className="spinner" /></div>
@@ -49,21 +52,19 @@ export default function Profile() {
   return (
     <div className="page">
       <div className="profile-page">
+
+        {/* Header */}
         <div className="profile-header">
           <div className="avatar-lg">
             {profile.username?.[0]?.toUpperCase() || '?'}
           </div>
           <div className="profile-info">
             <h2>@{profile.username}</h2>
-            <p>{profile.email}</p>
+            <p style={{ color: 'var(--muted)', fontSize: 14 }}>{profile.email}</p>
             <div className="profile-stats">
               <div className="stat">
-                <div className="stat-num">{events.length}</div>
-                <div className="stat-label">Posted</div>
-              </div>
-              <div className="stat">
-                <div className="stat-num">{attending.length}</div>
-                <div className="stat-label">Attending</div>
+                <div className="stat-num">{memberships.length}</div>
+                <div className="stat-label">Groups</div>
               </div>
             </div>
           </div>
@@ -79,53 +80,63 @@ export default function Profile() {
           </button>
         )}
 
-        <div style={{ marginBottom: 32 }}>
-          <h3 className="section-title">Events Posted</h3>
-          {events.length === 0 ? (
-            <div className="empty-state" style={{ padding: '32px 0' }}>
-              <p>No events posted yet</p>
-            </div>
-          ) : (
-            events.map(event => (
-              <div
-                key={event.id}
-                className="event-card"
-                onClick={() => navigate(`/event/${event.id}`)}
-              >
-                <span className="event-category">{event.category}</span>
-                <h3 className="event-title">{event.title}</h3>
-                <div className="event-meta">
-                  <span>{format(new Date(event.event_date), 'EEE, MMM d · h:mm a')}</span>
-                  <span>{event.location_name}</span>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
+        {/* Group memberships */}
+        <h3 className="section-title">
+          {isOwnProfile ? 'Your Groups' : `${profile.username}'s Groups`}
+        </h3>
 
-        <div>
-          <h3 className="section-title">Events Attending</h3>
-          {attending.length === 0 ? (
-            <div className="empty-state" style={{ padding: '32px 0' }}>
-              <p>Not attending any events yet</p>
-            </div>
-          ) : (
-            attending.map(event => (
-              <div
-                key={event.id}
-                className="event-card"
-                onClick={() => navigate(`/event/${event.id}`)}
-              >
-                <span className="event-category">{event.category}</span>
-                <h3 className="event-title">{event.title}</h3>
-                <div className="event-meta">
-                  <span>{format(new Date(event.event_date), 'EEE, MMM d · h:mm a')}</span>
-                  <span>{event.location_name}</span>
+        {memberships.length === 0 ? (
+          <div className="empty-state" style={{ padding: '32px 0' }}>
+            <p>{isOwnProfile ? "You haven't joined any groups yet" : "Not a member of any groups yet"}</p>
+            {isOwnProfile && (
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 16, flexWrap: 'wrap' }}>
+                <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => navigate('/groups/create')}>
+                  Create a Group
+                </button>
+                <button className="btn btn-ghost" onClick={() => navigate('/groups')}>
+                  Browse Groups
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          memberships.map(m => (
+            <div
+              key={m.groups?.id}
+              className="event-card"
+              onClick={() => navigate(`/groups/${m.groups?.id}`)}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <div style={{
+                  width: 48, height: 48, borderRadius: 12,
+                  background: 'var(--accent)', flexShrink: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: 20
+                }}>
+                  {m.groups?.name?.[0]?.toUpperCase()}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: '1rem', marginBottom: 4 }}>
+                    {m.groups?.name}
+                  </div>
+                  <span style={{
+                    display: 'inline-block',
+                    fontSize: 12, fontWeight: 700,
+                    padding: '2px 10px', borderRadius: 20,
+                    background: `${roleColor[m.role]}22`,
+                    color: roleColor[m.role],
+                    border: `1px solid ${roleColor[m.role]}44`
+                  }}>
+                    {roleLabel[m.role]}
+                  </span>
                 </div>
               </div>
-            ))
-          )}
-        </div>
+              {m.groups?.description && (
+                <p className="event-desc" style={{ marginTop: 10 }}>{m.groups.description}</p>
+              )}
+            </div>
+          ))
+        )}
       </div>
     </div>
   )

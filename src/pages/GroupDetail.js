@@ -1,15 +1,137 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
+import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { format } from 'date-fns'
 
+delete L.Icon.Default.prototype._getIconUrl
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+})
+
+const CATEGORIES = ['Music', 'Sport', 'Food', 'Art', 'Social', 'Tech', 'Outdoor', 'Festival', 'Other']
+
 const joinModeLabel = { open: 'Open', request: 'Request to join', invite: 'Invite only' }
-const roleLabel = {
-  creator: '⭐ Creator',
-  owner: '👑 Owner',
-  admin: '⚡ Admin',
-  member: 'Member'
+const roleLabel = { creator: '⭐ Creator', owner: '👑 Owner', admin: '⚡ Admin', member: 'Member' }
+
+function LocationPicker({ onSelect }) {
+  useMapEvents({ click(e) { onSelect(e.latlng) } })
+  return null
+}
+
+function PostEventForm({ groupId, userId, onSuccess, onCancel }) {
+  const [title, setTitle] = useState('')
+  const [description, setDescription] = useState('')
+  const [locationName, setLocationName] = useState('')
+  const [date, setDate] = useState('')
+  const [time, setTime] = useState('')
+  const [category, setCategory] = useState('Social')
+  const [latlng, setLatlng] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    if (!latlng) { setError('Please click the map to pin the location'); return }
+    if (!date || !time) { setError('Please set a date and time'); return }
+    setLoading(true)
+    setError('')
+    const { error: err } = await supabase.from('events').insert({
+      title, description,
+      location_name: locationName,
+      lat: latlng.lat, lng: latlng.lng,
+      event_date: new Date(`${date}T${time}`).toISOString(),
+      category,
+      user_id: userId,
+      group_id: groupId,
+    })
+    if (err) { setError(err.message); setLoading(false) }
+    else onSuccess()
+  }
+
+  return (
+    <div style={{
+      background: 'var(--bg2)', border: '1.5px solid var(--accent)',
+      borderRadius: 14, padding: 24, marginBottom: 24
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <h3 style={{ fontFamily: 'Syne, sans-serif', fontSize: '1.1rem' }}>Post a New Event</h3>
+        <button onClick={onCancel} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 20, cursor: 'pointer' }}>✕</button>
+      </div>
+
+      {error && <div className="error-msg">{error}</div>}
+
+      <form onSubmit={handleSubmit}>
+        <div className="field">
+          <label>Event Title</label>
+          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Give your event a name" required />
+        </div>
+
+        <div className="field">
+          <label>Category</label>
+          <div className="category-grid">
+            {CATEGORIES.map(cat => (
+              <button type="button" key={cat}
+                className={`category-btn ${category === cat ? 'active' : ''}`}
+                onClick={() => setCategory(cat)}>{cat}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="form-grid">
+          <div className="field">
+            <label>Date</label>
+            <input type="date" value={date} onChange={e => setDate(e.target.value)} required />
+          </div>
+          <div className="field">
+            <label>Time</label>
+            <input type="time" value={time} onChange={e => setTime(e.target.value)} required />
+          </div>
+        </div>
+
+        <div className="field">
+          <label>Location Name</label>
+          <input value={locationName} onChange={e => setLocationName(e.target.value)} placeholder="e.g. The Sports Centre, Bristol" required />
+        </div>
+
+        <div className="field">
+          <label>Pin on the map</label>
+          <div className="location-picker">
+            <MapContainer center={[54.5, -3]} zoom={5} style={{ height: 200 }}>
+              <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+              <LocationPicker onSelect={setLatlng} />
+              {latlng && <Marker position={latlng} />}
+            </MapContainer>
+            <div className="location-hint">
+              {latlng ? `📍 ${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}` : 'Click the map to drop a pin'}
+            </div>
+          </div>
+        </div>
+
+        <div className="field">
+          <label>Description (optional)</label>
+          <textarea value={description} onChange={e => setDescription(e.target.value)}
+            placeholder="Any details people should know..." rows={3} />
+        </div>
+
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="btn btn-primary" type="submit" disabled={loading}>
+            {loading ? 'Posting...' : 'Post Event'}
+          </button>
+          <button type="button" className="btn btn-ghost" onClick={onCancel}>Cancel</button>
+        </div>
+      </form>
+    </div>
+  )
 }
 
 export default function GroupDetail() {
@@ -23,10 +145,10 @@ export default function GroupDetail() {
   const [loading, setLoading] = useState(true)
   const [joining, setJoining] = useState(false)
   const [hasRequested, setHasRequested] = useState(false)
+  const [showPostForm, setShowPostForm] = useState(false)
   const { user } = useAuth()
   const navigate = useNavigate()
 
-  // Creator and owner have full privileges; admin has most
   const isCreator = myMembership?.role === 'creator'
   const isAdmin = ['creator', 'owner', 'admin'].includes(myMembership?.role)
   const canManageMembers = ['creator', 'owner'].includes(myMembership?.role)
@@ -36,12 +158,12 @@ export default function GroupDetail() {
   }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function fetchAll() {
-    const [groupRes, membersRes, eventsRes, myRes, countRes, requestRes, myRequestRes] = await Promise.all([
+    const [groupRes, membersRes, eventsRes, myRes, memberData, requestRes, myRequestRes] = await Promise.all([
       supabase.from('groups').select('*').eq('id', id).single(),
       supabase.from('group_members').select('*, profiles(id, username)').eq('group_id', id),
-      supabase.from('events').select('*').eq('group_id', id).order('event_date', { ascending: true }),
+      supabase.from('events').select('*, profiles(username)').eq('group_id', id).order('event_date', { ascending: true }).gte('event_date', new Date().toISOString()),
       supabase.from('group_members').select('role').eq('group_id', id).eq('user_id', user.id).maybeSingle(),
-      supabase.from('group_members').select('count').eq('group_id', id),
+      supabase.from('group_members').select('user_id').eq('group_id', id),
       supabase.from('group_join_requests').select('*, profiles(username)').eq('group_id', id),
       supabase.from('group_join_requests').select('id').eq('group_id', id).eq('user_id', user.id).maybeSingle()
     ])
@@ -50,7 +172,7 @@ export default function GroupDetail() {
     setMembers(membersRes.data || [])
     setEvents(eventsRes.data || [])
     setMyMembership(myRes.data)
-    setMemberCount(countRes.data?.[0]?.count || 0)
+    setMemberCount((memberData.data || []).length)
     setPendingRequests(requestRes.data || [])
     setHasRequested(!!myRequestRes.data)
     setLoading(false)
@@ -119,8 +241,8 @@ export default function GroupDetail() {
           </div>
           <div style={{ flex: 1 }}>
             <h1 style={{ fontSize: '1.6rem', marginBottom: 4 }}>{group.name}</h1>
-            <div style={{ display: 'flex', gap: 16, color: 'var(--muted)', fontSize: 13, flexWrap: 'wrap' }}>
-              <span>{memberCount} members</span>
+            <div style={{ display: 'flex', gap: 14, color: 'var(--muted)', fontSize: 13, flexWrap: 'wrap' }}>
+              <span>{memberCount} member{memberCount !== 1 ? 's' : ''}</span>
               <span>{joinModeLabel[group.join_mode]}</span>
               {myMembership && (
                 <span style={{ color: 'var(--accent)', fontWeight: 600 }}>
@@ -157,7 +279,7 @@ export default function GroupDetail() {
           </button>
         )}
 
-        {/* Pending requests (admins only) */}
+        {/* Pending join requests */}
         {isAdmin && pendingRequests.length > 0 && (
           <div style={{ marginBottom: 28 }}>
             <h3 className="section-title">
@@ -178,19 +300,31 @@ export default function GroupDetail() {
           </div>
         )}
 
-        {/* Events */}
+        {/* Events section */}
         <div style={{ marginBottom: 28 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
             <h3 className="section-title" style={{ marginBottom: 0, borderBottom: 'none' }}>Upcoming Events</h3>
-            {isAdmin && (
-              <Link to="/create" className="attend-btn" style={{ textDecoration: 'none' }}>+ Post Event</Link>
+            {isAdmin && !showPostForm && (
+              <button className="btn btn-primary" style={{ width: 'auto', padding: '8px 18px', fontSize: 13 }} onClick={() => setShowPostForm(true)}>
+                + Post Event
+              </button>
             )}
           </div>
-          {!myMembership && (
-            <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>Join this group to post events</p>
+
+          {/* Inline post event form */}
+          {showPostForm && (
+            <PostEventForm
+              groupId={id}
+              userId={user.id}
+              onSuccess={() => { setShowPostForm(false); fetchAll() }}
+              onCancel={() => setShowPostForm(false)}
+            />
           )}
-          {events.length === 0 ? (
-            <p style={{ color: 'var(--muted)', fontSize: 14 }}>No upcoming events yet</p>
+
+          {events.length === 0 && !showPostForm ? (
+            <div style={{ padding: '20px 0', color: 'var(--muted)', fontSize: 14 }}>
+              {isAdmin ? 'No upcoming events — post one above!' : 'No upcoming events yet'}
+            </div>
           ) : (
             events.map(event => (
               <div key={event.id} className="event-card" onClick={() => navigate(`/event/${event.id}`)}>
@@ -200,6 +334,7 @@ export default function GroupDetail() {
                   <span>{format(new Date(event.event_date), 'EEE, MMM d · h:mm a')}</span>
                   <span>{event.location_name}</span>
                 </div>
+                {event.description && <p className="event-desc">{event.description}</p>}
               </div>
             ))
           )}
@@ -216,17 +351,20 @@ export default function GroupDetail() {
           {canSeeMembers && members.map(m => (
             <div key={m.user_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div className="avatar-sm">{m.profiles?.username?.[0]?.toUpperCase()}</div>
+                <div className="avatar-sm" style={{ cursor: 'pointer' }} onClick={() => navigate(`/profile/${m.profiles?.id}`)}>
+                  {m.profiles?.username?.[0]?.toUpperCase()}
+                </div>
                 <div>
-                  <div style={{ fontSize: 14, fontWeight: 500 }}>@{m.profiles?.username}</div>
+                  <div style={{ fontSize: 14, fontWeight: 500, cursor: 'pointer' }} onClick={() => navigate(`/profile/${m.profiles?.id}`)}>
+                    @{m.profiles?.username}
+                  </div>
                   <div style={{ fontSize: 12, color: 'var(--muted)' }}>{roleLabel[m.role]}</div>
                 </div>
               </div>
-              {/* Only creator/owner can manage others, and can't change a creator's role */}
               {canManageMembers && m.user_id !== user.id && m.role !== 'creator' && (
                 <div style={{ display: 'flex', gap: 6 }}>
                   {m.role === 'member' && (
-                    <button className="attend-btn" onClick={() => changeRole(m.user_id, 'admin')} style={{ fontSize: 12 }}>
+                    <button className="attend-btn" style={{ fontSize: 12 }} onClick={() => changeRole(m.user_id, 'admin')}>
                       Make Admin
                     </button>
                   )}
@@ -235,11 +373,7 @@ export default function GroupDetail() {
                       Demote
                     </button>
                   )}
-                  <button
-                    className="btn btn-ghost"
-                    style={{ padding: '5px 10px', fontSize: 12, color: '#e74c3c', borderColor: '#e74c3c' }}
-                    onClick={() => removeMember(m.user_id)}
-                  >
+                  <button className="btn btn-ghost" style={{ padding: '5px 10px', fontSize: 12, color: '#e74c3c', borderColor: '#e74c3c' }} onClick={() => removeMember(m.user_id)}>
                     Remove
                   </button>
                 </div>
@@ -247,6 +381,7 @@ export default function GroupDetail() {
             </div>
           ))}
         </div>
+
       </div>
     </div>
   )

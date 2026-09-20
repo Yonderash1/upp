@@ -20,11 +20,6 @@ const GroupsIcon = () => (
     <path d="M16 3.13a4 4 0 010 7.75"/>
   </svg>
 )
-const PlusIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>
-  </svg>
-)
 
 export default function Navbar() {
   const location = useLocation()
@@ -34,7 +29,8 @@ export default function Navbar() {
   const initial = user?.user_metadata?.username?.[0]?.toUpperCase() ||
                   user?.email?.[0]?.toUpperCase() || 'U'
 
-  const isActive = (path) => location.pathname === path || location.pathname.startsWith(path + '/')
+  const isActive = (path) =>
+    location.pathname === path || location.pathname.startsWith(path + '/')
 
   async function handleSignOut() {
     await signOut()
@@ -57,10 +53,6 @@ export default function Navbar() {
         <Link to="/groups" className={`nav-link ${isActive('/groups') ? 'active' : ''}`}>
           <GroupsIcon />
           Groups
-        </Link>
-        <Link to="/create" className={`nav-link ${location.pathname === '/create' ? 'active' : ''}`}>
-          <PlusIcon />
-          Post
         </Link>
       </div>
 
