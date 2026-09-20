@@ -5,7 +5,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { format } from 'date-fns'
+import { format, formatDistanceToNow } from 'date-fns'
 
 delete L.Icon.Default.prototype._getIconUrl
 L.Icon.Default.mergeOptions({
@@ -35,7 +35,7 @@ export default function EventDetail() {
   async function fetchEvent() {
     const { data } = await supabase
       .from('events')
-      .select('*, profiles(username, id)')
+      .select('*, profiles(username, id), groups(id, name)')
       .eq('id', id)
       .single()
     setEvent(data)
@@ -66,21 +66,14 @@ export default function EventDetail() {
   return (
     <div className="page">
       <div className="detail-page">
-        <button
-          className="btn btn-ghost"
-          style={{ marginBottom: 20, padding: '7px 14px', fontSize: 13 }}
-          onClick={() => navigate(-1)}
-        >
+        <button className="btn btn-ghost" style={{ marginBottom: 20, padding: '7px 14px', fontSize: 13 }} onClick={() => navigate(-1)}>
           ← Back
         </button>
 
         {event.lat && event.lng && (
           <div className="detail-map">
             <MapContainer center={[event.lat, event.lng]} zoom={15} style={{ height: 260 }} zoomControl={false}>
-              <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              />
+              <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
               <Marker position={[event.lat, event.lng]} />
             </MapContainer>
           </div>
@@ -100,19 +93,18 @@ export default function EventDetail() {
             <PinIcon />
             {event.location_name}
           </div>
-          <div
-            className="detail-meta-row"
-            style={{ cursor: 'pointer' }}
-            onClick={() => navigate(`/profile/${event.profiles?.id}`)}
-          >
-            <UserIcon />
-            Hosted by {event.profiles?.username}
+          {event.groups && (
+            <div className="detail-meta-row" style={{ cursor: 'pointer' }} onClick={() => navigate(`/groups/${event.groups.id}`)}>
+              <UserIcon />
+              Organised by <strong style={{ color: 'var(--accent)', marginLeft: 4 }}>{event.groups.name}</strong>
+            </div>
+          )}
+          <div className="detail-meta-row" style={{ fontSize: 12, color: 'var(--muted)' }}>
+            <span>🕐 Posted {formatDistanceToNow(new Date(event.created_at), { addSuffix: true })}</span>
           </div>
         </div>
 
-        {event.description && (
-          <p className="detail-desc">{event.description}</p>
-        )}
+        {event.description && <p className="detail-desc">{event.description}</p>}
 
         <div className="attendees-section">
           <h3 className="section-title">{attendees.length} {attendees.length === 1 ? 'person' : 'people'} going</h3>
@@ -128,10 +120,7 @@ export default function EventDetail() {
           </div>
         </div>
 
-        <button
-          className={`big-attend-btn ${isAttending ? 'attending' : ''}`}
-          onClick={toggleAttend}
-        >
+        <button className={`big-attend-btn ${isAttending ? 'attending' : ''}`} onClick={toggleAttend}>
           {isAttending ? "✓ You're going — click to cancel" : "I'm going to this!"}
         </button>
       </div>
