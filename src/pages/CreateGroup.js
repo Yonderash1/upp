@@ -4,21 +4,9 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 
 const JOIN_MODES = [
-  {
-    value: 'open',
-    label: 'Open',
-    desc: 'Anyone can join instantly'
-  },
-  {
-    value: 'request',
-    label: 'Request to join',
-    desc: 'Users request, admins approve'
-  },
-  {
-    value: 'invite',
-    label: 'Invite only',
-    desc: 'Admins add members manually'
-  }
+  { value: 'open', label: 'Open', desc: 'Anyone can join instantly' },
+  { value: 'request', label: 'Request to join', desc: 'Users request, admins approve' },
+  { value: 'invite', label: 'Invite only', desc: 'Admins add members manually' }
 ]
 
 export default function CreateGroup() {
@@ -36,6 +24,8 @@ export default function CreateGroup() {
     setLoading(true)
     setError('')
 
+    // Insert the group — the database trigger will automatically
+    // add the creator as a member with the 'creator' role
     const { data: group, error: groupErr } = await supabase
       .from('groups')
       .insert({
@@ -50,17 +40,6 @@ export default function CreateGroup() {
 
     if (groupErr) {
       setError(groupErr.message)
-      setLoading(false)
-      return
-    }
-
-    // Make the creator the owner
-    const { error: memberErr } = await supabase
-      .from('group_members')
-      .insert({ group_id: group.id, user_id: user.id, role: 'owner' })
-
-    if (memberErr) {
-      setError(memberErr.message)
       setLoading(false)
       return
     }
@@ -105,21 +84,12 @@ export default function CreateGroup() {
                   key={mode.value}
                   onClick={() => setJoinMode(mode.value)}
                   style={{
-                    padding: '14px 16px',
-                    borderRadius: 10,
+                    padding: '14px 16px', borderRadius: 10, cursor: 'pointer', transition: 'all 0.2s',
                     border: `1.5px solid ${joinMode === mode.value ? 'var(--accent)' : 'var(--border)'}`,
                     background: joinMode === mode.value ? 'rgba(255,92,53,0.08)' : 'var(--bg3)',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s'
                   }}
                 >
-                  <div style={{
-                    fontFamily: 'Syne, sans-serif',
-                    fontWeight: 700,
-                    fontSize: 14,
-                    color: joinMode === mode.value ? 'var(--accent)' : 'var(--text)',
-                    marginBottom: 3
-                  }}>
+                  <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: 14, color: joinMode === mode.value ? 'var(--accent)' : 'var(--text)', marginBottom: 3 }}>
                     {mode.label}
                   </div>
                   <div style={{ fontSize: 13, color: 'var(--muted)' }}>{mode.desc}</div>
@@ -139,21 +109,12 @@ export default function CreateGroup() {
                   key={String(opt.value)}
                   onClick={() => setMembersVisible(opt.value)}
                   style={{
-                    padding: '14px 16px',
-                    borderRadius: 10,
+                    padding: '14px 16px', borderRadius: 10, cursor: 'pointer', transition: 'all 0.2s',
                     border: `1.5px solid ${membersVisible === opt.value ? 'var(--accent)' : 'var(--border)'}`,
                     background: membersVisible === opt.value ? 'rgba(255,92,53,0.08)' : 'var(--bg3)',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s'
                   }}
                 >
-                  <div style={{
-                    fontFamily: 'Syne, sans-serif',
-                    fontWeight: 700,
-                    fontSize: 14,
-                    color: membersVisible === opt.value ? 'var(--accent)' : 'var(--text)',
-                    marginBottom: 3
-                  }}>
+                  <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: 14, color: membersVisible === opt.value ? 'var(--accent)' : 'var(--text)', marginBottom: 3 }}>
                     {opt.label}
                   </div>
                   <div style={{ fontSize: 13, color: 'var(--muted)' }}>{opt.desc}</div>

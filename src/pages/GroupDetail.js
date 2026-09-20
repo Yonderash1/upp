@@ -5,7 +5,12 @@ import { useAuth } from '../contexts/AuthContext'
 import { format } from 'date-fns'
 
 const joinModeLabel = { open: 'Open', request: 'Request to join', invite: 'Invite only' }
-const roleLabel = { owner: '👑 Owner', admin: '⚡ Admin', member: 'Member' }
+const roleLabel = {
+  creator: '⭐ Creator',
+  owner: '👑 Owner',
+  admin: '⚡ Admin',
+  member: 'Member'
+}
 
 export default function GroupDetail() {
   const { id } = useParams()
@@ -21,8 +26,10 @@ export default function GroupDetail() {
   const { user } = useAuth()
   const navigate = useNavigate()
 
-  const isAdmin = myMembership?.role === 'owner' || myMembership?.role === 'admin'
-  const isOwner = myMembership?.role === 'owner'
+  // Creator and owner have full privileges; admin has most
+  const isCreator = myMembership?.role === 'creator'
+  const isAdmin = ['creator', 'owner', 'admin'].includes(myMembership?.role)
+  const canManageMembers = ['creator', 'owner'].includes(myMembership?.role)
 
   useEffect(() => {
     fetchAll()
@@ -62,7 +69,7 @@ export default function GroupDetail() {
   }
 
   async function handleLeave() {
-    if (isOwner) { alert("You're the owner — transfer ownership in settings before leaving."); return }
+    if (isCreator) { alert("You're the creator — you cannot leave your own group."); return }
     await supabase.from('group_members').delete().eq('group_id', id).eq('user_id', user.id)
     setMyMembership(null)
     fetchAll()
@@ -112,10 +119,14 @@ export default function GroupDetail() {
           </div>
           <div style={{ flex: 1 }}>
             <h1 style={{ fontSize: '1.6rem', marginBottom: 4 }}>{group.name}</h1>
-            <div style={{ display: 'flex', gap: 16, color: 'var(--muted)', fontSize: 13 }}>
+            <div style={{ display: 'flex', gap: 16, color: 'var(--muted)', fontSize: 13, flexWrap: 'wrap' }}>
               <span>{memberCount} members</span>
               <span>{joinModeLabel[group.join_mode]}</span>
-              {myMembership && <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{roleLabel[myMembership.role]}</span>}
+              {myMembership && (
+                <span style={{ color: 'var(--accent)', fontWeight: 600 }}>
+                  {roleLabel[myMembership.role]}
+                </span>
+              )}
             </div>
           </div>
           {isAdmin && (
@@ -140,7 +151,7 @@ export default function GroupDetail() {
             This group is invite only — contact an admin to join.
           </div>
         )}
-        {myMembership && !isOwner && (
+        {myMembership && !isCreator && (
           <button className="btn btn-ghost" onClick={handleLeave} style={{ marginBottom: 28, fontSize: 13 }}>
             Leave group
           </button>
@@ -153,10 +164,7 @@ export default function GroupDetail() {
               Join Requests <span style={{ color: 'var(--accent)' }}>{pendingRequests.length}</span>
             </h3>
             {pendingRequests.map(req => (
-              <div key={req.id} style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '12px 0', borderBottom: '1px solid var(--border)'
-              }}>
+              <div key={req.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <div className="avatar-sm">{req.profiles?.username?.[0]?.toUpperCase()}</div>
                   <span style={{ fontSize: 14 }}>@{req.profiles?.username}</span>
@@ -178,7 +186,7 @@ export default function GroupDetail() {
               <Link to="/create" className="attend-btn" style={{ textDecoration: 'none' }}>+ Post Event</Link>
             )}
           </div>
-          {!isAdmin && !myMembership && (
+          {!myMembership && (
             <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>Join this group to post events</p>
           )}
           {events.length === 0 ? (
@@ -199,15 +207,14 @@ export default function GroupDetail() {
 
         {/* Members */}
         <div>
-          <h3 className="section-title">{canSeeMembers ? `Members (${members.length})` : `${memberCount} members`}</h3>
+          <h3 className="section-title">
+            {canSeeMembers ? `Members (${members.length})` : `${memberCount} members`}
+          </h3>
           {!canSeeMembers && (
             <p style={{ fontSize: 13, color: 'var(--muted)' }}>Member list is only visible to admins</p>
           )}
           {canSeeMembers && members.map(m => (
-            <div key={m.user_id} style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '12px 0', borderBottom: '1px solid var(--border)'
-            }}>
+            <div key={m.user_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div className="avatar-sm">{m.profiles?.username?.[0]?.toUpperCase()}</div>
                 <div>
@@ -215,7 +222,8 @@ export default function GroupDetail() {
                   <div style={{ fontSize: 12, color: 'var(--muted)' }}>{roleLabel[m.role]}</div>
                 </div>
               </div>
-              {isOwner && m.user_id !== user.id && (
+              {/* Only creator/owner can manage others, and can't change a creator's role */}
+              {canManageMembers && m.user_id !== user.id && m.role !== 'creator' && (
                 <div style={{ display: 'flex', gap: 6 }}>
                   {m.role === 'member' && (
                     <button className="attend-btn" onClick={() => changeRole(m.user_id, 'admin')} style={{ fontSize: 12 }}>
@@ -227,7 +235,11 @@ export default function GroupDetail() {
                       Demote
                     </button>
                   )}
-                  <button className="btn btn-ghost" style={{ padding: '5px 10px', fontSize: 12, color: '#e74c3c', borderColor: '#e74c3c' }} onClick={() => removeMember(m.user_id)}>
+                  <button
+                    className="btn btn-ghost"
+                    style={{ padding: '5px 10px', fontSize: 12, color: '#e74c3c', borderColor: '#e74c3c' }}
+                    onClick={() => removeMember(m.user_id)}
+                  >
                     Remove
                   </button>
                 </div>

@@ -45,7 +45,7 @@ export default function CreateEvent() {
       .from('group_members')
       .select('group_id, role, groups(id, name)')
       .eq('user_id', user.id)
-      .in('role', ['owner', 'admin'])
+      .in('role', ['creator', 'owner', 'admin'])
     const groups = (data || []).map(m => m.groups).filter(Boolean)
     setAdminGroups(groups)
     if (groups.length === 1) setSelectedGroup(groups[0].id)
@@ -81,7 +81,7 @@ export default function CreateEvent() {
             <div style={{ fontSize: 40, marginBottom: 16 }}>🔒</div>
             <h3 style={{ marginBottom: 10 }}>You need to be a group admin to post events</h3>
             <p style={{ color: 'var(--muted)', fontSize: 14, lineHeight: 1.7, marginBottom: 24 }}>
-              Events on Upp are posted by groups. Create your own group and you'll automatically become its owner, letting you post events straight away.
+              Events on Upp are posted by groups. Create your own group and you'll automatically become its creator, letting you post events straight away.
             </p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
               <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => navigate('/groups/create')}>Create a Group</button>
@@ -135,14 +135,8 @@ export default function CreateEvent() {
             </div>
           </div>
           <div className="form-grid">
-            <div className="field">
-              <label>Date</label>
-              <input type="date" value={date} onChange={e => setDate(e.target.value)} required />
-            </div>
-            <div className="field">
-              <label>Time</label>
-              <input type="time" value={time} onChange={e => setTime(e.target.value)} required />
-            </div>
+            <div className="field"><label>Date</label><input type="date" value={date} onChange={e => setDate(e.target.value)} required /></div>
+            <div className="field"><label>Time</label><input type="time" value={time} onChange={e => setTime(e.target.value)} required /></div>
           </div>
           <div className="field">
             <label>Location Name</label>
