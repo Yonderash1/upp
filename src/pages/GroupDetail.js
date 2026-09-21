@@ -23,7 +23,50 @@ function LocationPicker({ onSelect }) {
   return null
 }
 
-// ── Post Event Form ──────────────────────────────────────────
+// ── Lightbox ─────────────────────────────────────────────────
+function Lightbox({ src, onClose }) {
+  useEffect(() => {
+    function onKey(e) { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 9999,
+        background: 'rgba(0,0,0,0.92)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 24, cursor: 'zoom-out'
+      }}
+    >
+      <img
+        src={src}
+        alt="Full size"
+        onClick={e => e.stopPropagation()}
+        style={{
+          maxWidth: '100%', maxHeight: '90vh',
+          borderRadius: 10, objectFit: 'contain',
+          boxShadow: '0 8px 48px rgba(0,0,0,0.6)',
+          cursor: 'default'
+        }}
+      />
+      <button
+        onClick={onClose}
+        style={{
+          position: 'absolute', top: 20, right: 24,
+          background: 'rgba(255,255,255,0.1)', border: 'none',
+          color: '#fff', fontSize: 24, cursor: 'pointer',
+          borderRadius: '50%', width: 40, height: 40,
+          display: 'flex', alignItems: 'center', justifyContent: 'center'
+        }}
+      >✕</button>
+    </div>
+  )
+}
+
+// ── Post Event Form ───────────────────────────────────────────
 function PostEventForm({ groupId, userId, editEvent, onSuccess, onCancel }) {
   const [title, setTitle] = useState(editEvent?.title || '')
   const [description, setDescription] = useState(editEvent?.description || '')
@@ -39,8 +82,7 @@ function PostEventForm({ groupId, userId, editEvent, onSuccess, onCancel }) {
     e.preventDefault()
     if (!latlng) { setError('Please click the map to pin the location'); return }
     if (!date || !time) { setError('Please set a date and time'); return }
-    setLoading(true)
-    setError('')
+    setLoading(true); setError('')
     const payload = {
       title, description, location_name: locationName,
       lat: latlng.lat, lng: latlng.lng,
@@ -62,10 +104,7 @@ function PostEventForm({ groupId, userId, editEvent, onSuccess, onCancel }) {
       </div>
       {error && <div className="error-msg">{error}</div>}
       <form onSubmit={handleSubmit}>
-        <div className="field">
-          <label>Event Title</label>
-          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Give your event a name" required />
-        </div>
+        <div className="field"><label>Event Title</label><input value={title} onChange={e => setTitle(e.target.value)} placeholder="Give your event a name" required /></div>
         <div className="field">
           <label>Category</label>
           <div className="category-grid">
@@ -78,10 +117,7 @@ function PostEventForm({ groupId, userId, editEvent, onSuccess, onCancel }) {
           <div className="field"><label>Date</label><input type="date" value={date} onChange={e => setDate(e.target.value)} required /></div>
           <div className="field"><label>Time</label><input type="time" value={time} onChange={e => setTime(e.target.value)} required /></div>
         </div>
-        <div className="field">
-          <label>Location Name</label>
-          <input value={locationName} onChange={e => setLocationName(e.target.value)} placeholder="e.g. The Sports Centre, Bristol" required />
-        </div>
+        <div className="field"><label>Location Name</label><input value={locationName} onChange={e => setLocationName(e.target.value)} placeholder="e.g. The Sports Centre, Bristol" required /></div>
         <div className="field">
           <label>Pin on the map</label>
           <div className="location-picker">
@@ -93,10 +129,7 @@ function PostEventForm({ groupId, userId, editEvent, onSuccess, onCancel }) {
             <div className="location-hint">{latlng ? `📍 ${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}` : 'Click the map to drop a pin'}</div>
           </div>
         </div>
-        <div className="field">
-          <label>Description (optional)</label>
-          <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Any details people should know..." rows={3} />
-        </div>
+        <div className="field"><label>Description (optional)</label><textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Any details people should know..." rows={3} /></div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button className="btn btn-primary" type="submit" disabled={loading}>{loading ? 'Saving...' : editEvent ? 'Save Changes' : 'Post Event'}</button>
           <button type="button" className="btn btn-ghost" onClick={onCancel}>Cancel</button>
@@ -106,7 +139,7 @@ function PostEventForm({ groupId, userId, editEvent, onSuccess, onCancel }) {
   )
 }
 
-// ── Announcement Form ────────────────────────────────────────
+// ── Announcement Form ─────────────────────────────────────────
 function AnnouncementForm({ groupId, userId, onSuccess, onCancel }) {
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
@@ -122,26 +155,24 @@ function AnnouncementForm({ groupId, userId, onSuccess, onCancel }) {
     setImagePreview(URL.createObjectURL(file))
   }
 
+  function removeImage() {
+    setImageFile(null)
+    setImagePreview(null)
+  }
+
   async function handleSubmit(e) {
     e.preventDefault()
-    setLoading(true)
-    setError('')
-
+    setLoading(true); setError('')
     let image_url = null
     if (imageFile) {
       const ext = imageFile.name.split('.').pop()
       const path = `${groupId}/${Date.now()}.${ext}`
-      const { error: uploadErr } = await supabase.storage
-        .from('announcements')
-        .upload(path, imageFile, { upsert: true })
+      const { error: uploadErr } = await supabase.storage.from('announcements').upload(path, imageFile, { upsert: true })
       if (uploadErr) { setError('Image upload failed: ' + uploadErr.message); setLoading(false); return }
       const { data: urlData } = supabase.storage.from('announcements').getPublicUrl(path)
       image_url = urlData.publicUrl
     }
-
-    const { error: err } = await supabase.from('announcements').insert({
-      group_id: groupId, user_id: userId, title, body, image_url
-    })
+    const { error: err } = await supabase.from('announcements').insert({ group_id: groupId, user_id: userId, title, body, image_url })
     if (err) { setError(err.message); setLoading(false) }
     else onSuccess()
   }
@@ -154,26 +185,39 @@ function AnnouncementForm({ groupId, userId, onSuccess, onCancel }) {
       </div>
       {error && <div className="error-msg">{error}</div>}
       <form onSubmit={handleSubmit}>
-        <div className="field">
-          <label>Title</label>
-          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Announcement title" required />
-        </div>
-        <div className="field">
-          <label>Message</label>
-          <textarea value={body} onChange={e => setBody(e.target.value)} placeholder="What do you want to tell your members?" rows={4} required />
-        </div>
+        <div className="field"><label>Title</label><input value={title} onChange={e => setTitle(e.target.value)} placeholder="Announcement title" required /></div>
+        <div className="field"><label>Message</label><textarea value={body} onChange={e => setBody(e.target.value)} placeholder="What do you want to tell your members?" rows={4} required /></div>
+
         <div className="field">
           <label>Image (optional)</label>
-          <input type="file" accept="image/*" onChange={handleImage}
-            style={{ padding: '8px', cursor: 'pointer' }} />
-          {imagePreview && (
-            <img src={imagePreview} alt="preview"
-              style={{ marginTop: 10, borderRadius: 8, maxWidth: '100%', maxHeight: 200, objectFit: 'cover' }} />
+          {!imagePreview ? (
+            <input type="file" accept="image/*" onChange={handleImage} style={{ padding: '8px', cursor: 'pointer' }} />
+          ) : (
+            <div style={{ position: 'relative', display: 'inline-block', width: '100%' }}>
+              <img
+                src={imagePreview} alt="preview"
+                style={{ width: '100%', maxHeight: 220, objectFit: 'cover', borderRadius: 8, display: 'block' }}
+              />
+              <button
+                type="button"
+                onClick={removeImage}
+                style={{
+                  position: 'absolute', top: 8, right: 8,
+                  background: 'rgba(0,0,0,0.7)', border: 'none',
+                  color: '#fff', borderRadius: '50%', width: 32, height: 32,
+                  fontSize: 16, cursor: 'pointer', display: 'flex',
+                  alignItems: 'center', justifyContent: 'center', fontWeight: 700
+                }}
+              >✕</button>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                {imageFile?.name} · <button type="button" onClick={removeImage} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12, cursor: 'pointer', padding: 0 }}>Remove</button>
+              </div>
+            </div>
           )}
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button className="btn btn-primary" type="submit" disabled={loading}
-            style={{ background: '#9b59b6' }}>
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+          <button className="btn btn-primary" type="submit" disabled={loading} style={{ background: '#9b59b6' }}>
             {loading ? 'Posting...' : 'Post Announcement'}
           </button>
           <button type="button" className="btn btn-ghost" onClick={onCancel}>Cancel</button>
@@ -183,7 +227,7 @@ function AnnouncementForm({ groupId, userId, onSuccess, onCancel }) {
   )
 }
 
-// ── Main GroupDetail ─────────────────────────────────────────
+// ── Main GroupDetail ──────────────────────────────────────────
 export default function GroupDetail() {
   const { id } = useParams()
   const [group, setGroup] = useState(null)
@@ -199,6 +243,7 @@ export default function GroupDetail() {
   const [showPostForm, setShowPostForm] = useState(false)
   const [showAnnounceForm, setShowAnnounceForm] = useState(false)
   const [editingEvent, setEditingEvent] = useState(null)
+  const [lightboxSrc, setLightboxSrc] = useState(null)
   const { user } = useAuth()
   const navigate = useNavigate()
 
@@ -249,7 +294,8 @@ export default function GroupDetail() {
 
   async function handleDeleteGroup() {
     if (!window.confirm(`Permanently delete "${group.name}"? This will remove all events and announcements.`)) return
-    await supabase.from('groups').delete().eq('id', id)
+    const { error } = await supabase.from('groups').delete().eq('id', id)
+    if (error) { alert('Delete failed: ' + error.message); return }
     navigate('/groups')
   }
 
@@ -291,7 +337,6 @@ export default function GroupDetail() {
 
   const canSeeMembers = isAdmin || group.members_visible
 
-  // Combine events and announcements into a single feed sorted by date
   const feed = [
     ...events.map(e => ({ ...e, _type: 'event' })),
     ...announcements.map(a => ({ ...a, _type: 'announcement' }))
@@ -303,6 +348,8 @@ export default function GroupDetail() {
 
   return (
     <div className="page">
+      {lightboxSrc && <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
+
       <div className="detail-page">
         <button className="btn btn-ghost" style={{ marginBottom: 20, padding: '7px 14px', fontSize: 13 }} onClick={() => navigate('/groups')}>
           ← Groups
@@ -370,41 +417,32 @@ export default function GroupDetail() {
         )}
 
         {/* Admin action buttons */}
-        {isAdmin && (
+        {isAdmin && !showPostForm && !showAnnounceForm && !editingEvent && (
           <div style={{ display: 'flex', gap: 10, marginBottom: 24, flexWrap: 'wrap' }}>
-            {!showPostForm && !showAnnounceForm && !editingEvent && (
-              <>
-                <button className="btn btn-primary" style={{ width: 'auto', padding: '8px 18px', fontSize: 13 }} onClick={() => setShowPostForm(true)}>
-                  📅 Post Event
-                </button>
-                <button onClick={() => setShowAnnounceForm(true)} style={{ background: 'rgba(155,89,182,0.15)', border: '1.5px solid rgba(155,89,182,0.4)', color: '#9b59b6', borderRadius: 10, padding: '8px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Syne, sans-serif' }}>
-                  📢 Announcement
-                </button>
-              </>
-            )}
+            <button className="btn btn-primary" style={{ width: 'auto', padding: '8px 18px', fontSize: 13 }} onClick={() => setShowPostForm(true)}>
+              📅 Post Event
+            </button>
+            <button onClick={() => setShowAnnounceForm(true)} style={{ background: 'rgba(155,89,182,0.15)', border: '1.5px solid rgba(155,89,182,0.4)', color: '#9b59b6', borderRadius: 10, padding: '8px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Syne, sans-serif' }}>
+              📢 Announcement
+            </button>
           </div>
         )}
 
-        {/* Post event form */}
         {(showPostForm || editingEvent) && (
-          <PostEventForm
-            groupId={id} userId={user.id}
-            editEvent={editingEvent}
+          <PostEventForm groupId={id} userId={user.id} editEvent={editingEvent}
             onSuccess={() => { setShowPostForm(false); setEditingEvent(null); fetchAll() }}
             onCancel={() => { setShowPostForm(false); setEditingEvent(null) }}
           />
         )}
 
-        {/* Announcement form */}
         {showAnnounceForm && (
-          <AnnouncementForm
-            groupId={id} userId={user.id}
+          <AnnouncementForm groupId={id} userId={user.id}
             onSuccess={() => { setShowAnnounceForm(false); fetchAll() }}
             onCancel={() => setShowAnnounceForm(false)}
           />
         )}
 
-        {/* Combined feed */}
+        {/* Feed */}
         <h3 className="section-title">Group Feed</h3>
         {feed.length === 0 ? (
           <p style={{ color: 'var(--muted)', fontSize: 14, marginBottom: 28 }}>
@@ -412,13 +450,12 @@ export default function GroupDetail() {
           </p>
         ) : (
           feed.map(item => item._type === 'event' ? (
-            // Event card
-            <div key={`event-${item.id}`} style={{ position: 'relative' }}>
+            <div key={`event-${item.id}`}>
               <div className="event-card" onClick={() => navigate(`/event/${item.id}`)}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <span className="event-category">{item.category}</span>
                   <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    📅 {formatDistanceToNow(new Date(item.created_at || item.event_date), { addSuffix: true })}
+                    {formatDistanceToNow(new Date(item.created_at || item.event_date), { addSuffix: true })}
                   </span>
                 </div>
                 <h3 className="event-title">{item.title}</h3>
@@ -443,7 +480,6 @@ export default function GroupDetail() {
               </div>
             </div>
           ) : (
-            // Announcement card
             <div key={`announcement-${item.id}`} className="event-card" style={{ borderColor: 'rgba(155,89,182,0.4)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                 <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, background: 'rgba(155,89,182,0.15)', color: '#9b59b6', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
@@ -456,8 +492,16 @@ export default function GroupDetail() {
               <h3 className="event-title">{item.title}</h3>
               <p style={{ color: 'var(--muted)', fontSize: 14, lineHeight: 1.6, marginTop: 6 }}>{item.body}</p>
               {item.image_url && (
-                <img src={item.image_url} alt={item.title}
-                  style={{ marginTop: 12, borderRadius: 8, width: '100%', maxHeight: 300, objectFit: 'cover' }} />
+                <div style={{ marginTop: 12, borderRadius: 8, overflow: 'hidden', cursor: 'zoom-in' }}
+                  onClick={() => setLightboxSrc(item.image_url)}>
+                  <img
+                    src={item.image_url}
+                    alt={item.title}
+                    style={{ width: '100%', height: 220, objectFit: 'cover', display: 'block', transition: 'transform 0.2s' }}
+                    onMouseEnter={e => e.target.style.transform = 'scale(1.02)'}
+                    onMouseLeave={e => e.target.style.transform = 'scale(1)'}
+                  />
+                </div>
               )}
               <div style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)' }}>
                 Posted by @{item.profiles?.username}
@@ -476,9 +520,7 @@ export default function GroupDetail() {
 
         {/* Members */}
         <div style={{ marginTop: 12 }}>
-          <h3 className="section-title">
-            {canSeeMembers ? `Members (${members.length})` : `${memberCount} members`}
-          </h3>
+          <h3 className="section-title">{canSeeMembers ? `Members (${members.length})` : `${memberCount} members`}</h3>
           {!canSeeMembers && <p style={{ fontSize: 13, color: 'var(--muted)' }}>Member list is only visible to admins</p>}
           {canSeeMembers && members.map(m => (
             <div key={m.user_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
@@ -491,12 +533,8 @@ export default function GroupDetail() {
               </div>
               {isOwner && m.user_id !== user.id && m.role !== 'owner' && (
                 <div style={{ display: 'flex', gap: 6 }}>
-                  {m.role === 'member' && (
-                    <button className="attend-btn" style={{ fontSize: 12 }} onClick={() => changeRole(m.user_id, 'admin')}>Make Admin</button>
-                  )}
-                  {m.role === 'admin' && (
-                    <button className="btn btn-ghost" style={{ padding: '5px 10px', fontSize: 12 }} onClick={() => changeRole(m.user_id, 'member')}>Demote</button>
-                  )}
+                  {m.role === 'member' && <button className="attend-btn" style={{ fontSize: 12 }} onClick={() => changeRole(m.user_id, 'admin')}>Make Admin</button>}
+                  {m.role === 'admin' && <button className="btn btn-ghost" style={{ padding: '5px 10px', fontSize: 12 }} onClick={() => changeRole(m.user_id, 'member')}>Demote</button>}
                   <button className="btn btn-ghost" style={{ padding: '5px 10px', fontSize: 12, color: '#e74c3c', borderColor: '#e74c3c' }} onClick={() => removeMember(m.user_id)}>Remove</button>
                 </div>
               )}
