@@ -1,5 +1,7 @@
+import { useState, useEffect } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { supabase } from '../lib/supabase'
 
 const HomeIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -25,12 +27,26 @@ export default function Navbar() {
   const location = useLocation()
   const navigate = useNavigate()
   const { user, signOut } = useAuth()
+  const [avatarUrl, setAvatarUrl] = useState(null)
 
   const initial = user?.user_metadata?.username?.[0]?.toUpperCase() ||
                   user?.email?.[0]?.toUpperCase() || 'U'
 
   const isActive = (path) =>
     location.pathname === path || location.pathname.startsWith(path + '/')
+
+  useEffect(() => {
+    if (!user) return
+    supabase.from('profiles').select('avatar_url').eq('id', user.id).single()
+      .then(({ data }) => { if (data?.avatar_url) setAvatarUrl(data.avatar_url) })
+  }, [user])
+
+  // Refresh avatar when returning to profile page
+  useEffect(() => {
+    if (!user || location.pathname !== `/profile/${user.id}`) return
+    supabase.from('profiles').select('avatar_url').eq('id', user.id).single()
+      .then(({ data }) => { if (data?.avatar_url) setAvatarUrl(data.avatar_url) })
+  }, [location.pathname, user])
 
   async function handleSignOut() {
     await signOut()
@@ -58,11 +74,15 @@ export default function Navbar() {
 
       <div className="nav-right">
         <div
-          className="avatar-sm"
           onClick={() => navigate(`/profile/${user?.id}`)}
           title="My Profile"
+          style={{ cursor: 'pointer', width: 36, height: 36, borderRadius: '50%', overflow: 'hidden', flexShrink: 0 }}
         >
-          {initial}
+          {avatarUrl ? (
+            <img src={avatarUrl} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          ) : (
+            <div className="avatar-sm">{initial}</div>
+          )}
         </div>
         <button
           className="btn btn-ghost"
