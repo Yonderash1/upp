@@ -4,9 +4,9 @@ import Login from './pages/Login'
 import Register from './pages/Register'
 import Home from './pages/Home'
 import MapPage from './pages/MapPage'
-import CreateEvent from './pages/CreateEvent'
 import EventDetail from './pages/EventDetail'
 import Profile from './pages/Profile'
+import People from './pages/People'
 import Groups from './pages/Groups'
 import CreateGroup from './pages/CreateGroup'
 import GroupDetail from './pages/GroupDetail'
@@ -36,9 +36,9 @@ function AppRoutes() {
         <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
         <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />
         <Route path="/map" element={<ProtectedRoute><MapPage /></ProtectedRoute>} />
-        <Route path="/create" element={<ProtectedRoute><CreateEvent /></ProtectedRoute>} />
         <Route path="/event/:id" element={<ProtectedRoute><EventDetail /></ProtectedRoute>} />
         <Route path="/profile/:id" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+        <Route path="/people" element={<ProtectedRoute><People /></ProtectedRoute>} />
         <Route path="/groups" element={<ProtectedRoute><Groups /></ProtectedRoute>} />
         <Route path="/groups/create" element={<ProtectedRoute><CreateGroup /></ProtectedRoute>} />
         <Route path="/groups/:id" element={<ProtectedRoute><GroupDetail /></ProtectedRoute>} />
