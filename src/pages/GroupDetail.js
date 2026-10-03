@@ -244,6 +244,7 @@ export default function GroupDetail() {
   const [showAnnounceForm, setShowAnnounceForm] = useState(false)
   const [editingEvent, setEditingEvent] = useState(null)
   const [lightboxSrc, setLightboxSrc] = useState(null)
+  const [labels, setLabels] = useState([])
   const { user } = useAuth()
   const navigate = useNavigate()
 
@@ -254,7 +255,7 @@ export default function GroupDetail() {
   useEffect(() => { fetchAll() }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function fetchAll() {
-    const [groupRes, membersRes, eventsRes, announcementsRes, myRes, memberData, requestRes, myRequestRes] = await Promise.all([
+    const [groupRes, membersRes, eventsRes, announcementsRes, myRes, memberData, requestRes, myRequestRes, labelData] = await Promise.all([
       supabase.from('groups').select('*').eq('id', id).single(),
       supabase.from('group_members').select('*, profiles(id, username)').eq('group_id', id),
       supabase.from('events').select('*, profiles(username)').eq('group_id', id).order('event_date', { ascending: true }).gte('event_date', new Date().toISOString()),
@@ -262,7 +263,8 @@ export default function GroupDetail() {
       supabase.from('group_members').select('role').eq('group_id', id).eq('user_id', user.id).maybeSingle(),
       supabase.from('group_members').select('user_id').eq('group_id', id),
       supabase.from('group_join_requests').select('*, profiles(username)').eq('group_id', id),
-      supabase.from('group_join_requests').select('id').eq('group_id', id).eq('user_id', user.id).maybeSingle()
+      supabase.from('group_join_requests').select('id').eq('group_id', id).eq('user_id', user.id).maybeSingle(),
+      supabase.from('group_label_assignments').select('label_id, group_labels(id, name)').eq('group_id', id)
     ])
     setGroup(groupRes.data)
     setMembers(membersRes.data || [])
@@ -272,6 +274,7 @@ export default function GroupDetail() {
     setMemberCount((memberData.data || []).length)
     setPendingRequests(requestRes.data || [])
     setHasRequested(!!myRequestRes.data)
+    setLabels((labelData.data || []).map(l => l.group_labels).filter(Boolean))
     setLoading(false)
   }
 
@@ -373,7 +376,23 @@ export default function GroupDetail() {
           )}
         </div>
 
-        {group.description && <p style={{ color: 'var(--muted)', lineHeight: 1.7, marginBottom: 24 }}>{group.description}</p>}
+        {group.description && <p style={{ color: 'var(--muted)', lineHeight: 1.7, marginBottom: labels.length > 0 ? 12 : 24 }}>{group.description}</p>}
+
+        {labels.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 24 }}>
+            {labels.map(l => (
+              <span key={l.id} style={{
+                fontSize: 12, fontWeight: 600,
+                padding: '4px 12px', borderRadius: 20,
+                background: 'var(--bg3)',
+                border: '1px solid var(--border)',
+                color: 'var(--muted)'
+              }}>
+                {l.name}
+              </span>
+            ))}
+          </div>
+        )}
 
         {/* Join / Leave / Delete */}
         <div style={{ display: 'flex', gap: 10, marginBottom: 28, flexWrap: 'wrap' }}>
