@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import AvatarCropper from '../components/AvatarCropper'
+import LabelPicker from '../components/LabelPicker'
 
 const roleLabel = { owner: '👑 Owner', admin: '⚡ Admin', member: 'Member' }
 const roleColor = { owner: '#f39c12', admin: '#9b59b6', member: 'var(--muted)' }
@@ -12,8 +13,7 @@ const TABS = ['About', 'Groups', 'Connections']
 export default function Profile() {
   const { id } = useParams()
   const [profile, setProfile] = useState(null)
-  const [interests, setInterests] = useState([])
-  const [allInterests, setAllInterests] = useState([])
+  const [interests, setInterests] = useState([]) // label objects {id, name}
   const [memberships, setMemberships] = useState([])
   const [connections, setConnections] = useState([])
   const [pendingReceived, setPendingReceived] = useState([])
@@ -21,18 +21,15 @@ export default function Profile() {
   const [myConnection, setMyConnection] = useState(null)
   const [tab, setTab] = useState('About')
   const [loading, setLoading] = useState(true)
-  // Avatar
   const [avatarHover, setAvatarHover] = useState(false)
   const [cropSrc, setCropSrc] = useState(null)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
-  // Edit mode
   const [editing, setEditing] = useState(false)
   const [editData, setEditData] = useState({})
   const [editInterests, setEditInterests] = useState([])
   const [locationQuery, setLocationQuery] = useState('')
   const [locationSuggestions, setLocationSuggestions] = useState([])
   const [savingEdit, setSavingEdit] = useState(false)
-  // Username
   const [editingUsername, setEditingUsername] = useState(false)
   const [newUsername, setNewUsername] = useState('')
   const [usernameAvailable, setUsernameAvailable] = useState(null)
@@ -46,24 +43,25 @@ export default function Profile() {
   useEffect(() => { fetchAll() }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function fetchAll() {
-    const [profileRes, interestsRes, allInterestsRes, membershipsRes, connectionsRes, myConnRes] = await Promise.all([
+    const [profileRes, interestsRes, membershipsRes, connectionsRes, myConnRes] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', id).single(),
-      supabase.from('profile_interests').select('interest_id, interests(id, name, emoji)').eq('user_id', id),
-      supabase.from('interests').select('*').order('name'),
+      supabase.from('profile_label_assignments').select('label_id, group_labels(id, name)').eq('user_id', id),
       supabase.from('group_members').select('role, groups(id, name, description)').eq('user_id', id).order('joined_at', { ascending: true }),
       supabase.from('connections').select('*, from_profile:from_user(id, username, avatar_url), to_profile:to_user(id, username, avatar_url)')
         .or(`from_user.eq.${id},to_user.eq.${id}`).eq('status', 'accepted'),
-      !isOwnProfile ? supabase.from('connections').select('*')
-        .or(`and(from_user.eq.${user.id},to_user.eq.${id}),and(from_user.eq.${id},to_user.eq.${user.id})`)
-        .maybeSingle()
+      !isOwnProfile
+        ? supabase.from('connections').select('*')
+            .or(`and(from_user.eq.${user.id},to_user.eq.${id}),and(from_user.eq.${id},to_user.eq.${user.id})`)
+            .maybeSingle()
         : Promise.resolve({ data: null })
     ])
+
     setProfile(profileRes.data)
-    setInterests((interestsRes.data || []).map(i => i.interests).filter(Boolean))
-    setAllInterests(allInterestsRes.data || [])
+    setInterests((interestsRes.data || []).map(i => i.group_labels).filter(Boolean))
     setMemberships(membershipsRes.data || [])
     setConnections(connectionsRes.data || [])
     setMyConnection(myConnRes.data)
+
     if (isOwnProfile) {
       const [rec, sent] = await Promise.all([
         supabase.from('connections').select('*, from_profile:from_user(id, username, avatar_url)').eq('to_user', id).eq('status', 'pending'),
@@ -130,7 +128,7 @@ export default function Profile() {
       city_lng: profile.city_lng,
     })
     setLocationQuery(profile.city || '')
-    setEditInterests(interests.map(i => i.id))
+    setEditInterests([...interests]) // pass full label objects
     setEditing(true)
   }
 
@@ -159,10 +157,15 @@ export default function Profile() {
       age: parseInt(editData.age), gender: editData.gender,
       city: editData.city, city_lat: editData.city_lat, city_lng: editData.city_lng
     }).eq('id', user.id)
-    await supabase.from('profile_interests').delete().eq('user_id', user.id)
+
+    // Replace label assignments
+    await supabase.from('profile_label_assignments').delete().eq('user_id', user.id)
     if (editInterests.length > 0) {
-      await supabase.from('profile_interests').insert(editInterests.map(id => ({ user_id: user.id, interest_id: id })))
+      await supabase.from('profile_label_assignments').insert(
+        editInterests.map(l => ({ user_id: user.id, label_id: l.id }))
+      )
     }
+
     await fetchAll()
     setEditing(false)
     setSavingEdit(false)
@@ -204,7 +207,6 @@ export default function Profile() {
       <div className="profile-page">
         {/* Header */}
         <div className="profile-header" style={{ alignItems: 'flex-start' }}>
-          {/* Avatar */}
           <div style={{ position: 'relative', flexShrink: 0, width: 80, height: 80 }}
             onMouseEnter={() => isOwnProfile && setAvatarHover(true)}
             onMouseLeave={() => setAvatarHover(false)}>
@@ -224,7 +226,6 @@ export default function Profile() {
 
           <div className="profile-info" style={{ flex: 1 }}>
             <h2 style={{ fontSize: '1.4rem', margin: '0 0 2px' }}>{displayName}</h2>
-            {/* Username with edit */}
             {editingUsername ? (
               <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
                 <div style={{ position: 'relative' }}>
@@ -277,7 +278,7 @@ export default function Profile() {
         {/* ── About tab ── */}
         {tab === 'About' && !editing && (
           <div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 24 }}>
               {[
                 { label: 'First Name', value: profile.first_name },
                 { label: 'Last Name', value: profile.last_name },
@@ -290,13 +291,14 @@ export default function Profile() {
                 </div>
               ))}
             </div>
+
             {interests.length > 0 && (
               <div style={{ marginBottom: 24 }}>
                 <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>Interests</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   {interests.map(i => (
                     <span key={i.id} style={{ padding: '6px 14px', borderRadius: 20, background: 'rgba(255,92,53,0.1)', border: '1px solid rgba(255,92,53,0.3)', color: 'var(--accent)', fontSize: 13, fontWeight: 600 }}>
-                      {i.emoji} {i.name}
+                      {i.name}
                     </span>
                   ))}
                 </div>
@@ -316,9 +318,7 @@ export default function Profile() {
                 <label>Gender</label>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
                   {GENDERS.map(g => (
-                    <div key={g} onClick={() => setEditData(d => ({ ...d, gender: g }))} style={{ padding: '8px 12px', borderRadius: 8, cursor: 'pointer', border: `1.5px solid ${editData.gender === g ? 'var(--accent)' : 'var(--border)'}`, background: editData.gender === g ? 'rgba(255,92,53,0.08)' : 'var(--bg3)', color: editData.gender === g ? 'var(--accent)' : 'var(--text)', fontSize: 13, fontWeight: editData.gender === g ? 600 : 400 }}>
-                      {g}
-                    </div>
+                    <div key={g} onClick={() => setEditData(d => ({ ...d, gender: g }))} style={{ padding: '8px 12px', borderRadius: 8, cursor: 'pointer', border: `1.5px solid ${editData.gender === g ? 'var(--accent)' : 'var(--border)'}`, background: editData.gender === g ? 'rgba(255,92,53,0.08)' : 'var(--bg3)', color: editData.gender === g ? 'var(--accent)' : 'var(--text)', fontSize: 13, fontWeight: editData.gender === g ? 600 : 400 }}>{g}</div>
                   ))}
                 </div>
               </div>
@@ -330,7 +330,8 @@ export default function Profile() {
               {locationSuggestions.length > 0 && (
                 <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: 'var(--card)', border: '1.5px solid var(--border)', borderRadius: 10, overflow: 'hidden', marginTop: 4, boxShadow: '0 8px 24px rgba(0,0,0,0.3)' }}>
                   {locationSuggestions.map((s, i) => (
-                    <div key={i} onClick={() => { setLocationQuery(s.short); setEditData(d => ({ ...d, city: s.short, city_lat: s.lat, city_lng: s.lng })); setLocationSuggestions([]) }} style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: i < locationSuggestions.length - 1 ? '1px solid var(--border)' : 'none', fontSize: 13 }}
+                    <div key={i} onClick={() => { setLocationQuery(s.short); setEditData(d => ({ ...d, city: s.short, city_lat: s.lat, city_lng: s.lng })); setLocationSuggestions([]) }}
+                      style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: i < locationSuggestions.length - 1 ? '1px solid var(--border)' : 'none', fontSize: 13 }}
                       onMouseEnter={e => e.currentTarget.style.background = 'var(--bg3)'}
                       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                       <div style={{ fontWeight: 600 }}>{s.short}</div>
@@ -344,17 +345,14 @@ export default function Profile() {
 
             <div className="field" style={{ marginBottom: 24 }}>
               <label>Interests</label>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginTop: 8 }}>
-                {allInterests.map(interest => {
-                  const sel = editInterests.includes(interest.id)
-                  return (
-                    <div key={interest.id} onClick={() => setEditInterests(s => sel ? s.filter(i => i !== interest.id) : [...s, interest.id])}
-                      style={{ padding: '10px 14px', borderRadius: 10, cursor: 'pointer', border: `1.5px solid ${sel ? 'var(--accent)' : 'var(--border)'}`, background: sel ? 'rgba(255,92,53,0.08)' : 'var(--bg3)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 20 }}>{interest.emoji}</span>
-                      <span style={{ fontWeight: sel ? 700 : 400, color: sel ? 'var(--accent)' : 'var(--text)', fontSize: 13 }}>{interest.name}</span>
-                    </div>
-                  )
-                })}
+              <div style={{ marginTop: 8 }}>
+                <LabelPicker
+                  selected={editInterests}
+                  onChange={setEditInterests}
+                  min={3}
+                  max={10}
+                  placeholder="e.g. Gaming, LGBTQ+, Cycling..."
+                />
               </div>
             </div>
 

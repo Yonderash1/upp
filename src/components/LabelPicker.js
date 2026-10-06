@@ -1,10 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
-const MAX_LABELS = 5
-const MIN_LABELS = 1
-
-export default function LabelPicker({ selected, onChange, error }) {
+export default function LabelPicker({ selected, onChange, error, min = 1, max = 5, placeholder = 'Search or create a label...' }) {
   const [query, setQuery] = useState('')
   const [suggestions, setSuggestions] = useState([])
   const [searching, setSearching] = useState(false)
@@ -20,14 +17,13 @@ export default function LabelPicker({ selected, onChange, error }) {
   useEffect(() => {
     const t = setTimeout(() => searchLabels(query), 250)
     return () => clearTimeout(t)
-  }, [query])
+  }, [query]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function searchLabels(q) {
     setCustomError('')
     if (!q.trim()) { setSuggestions([]); return }
     setSearching(true)
 
-    // Get matching labels with a count of how many groups use each
     const { data: labels } = await supabase
       .from('group_labels')
       .select('id, name')
@@ -37,13 +33,14 @@ export default function LabelPicker({ selected, onChange, error }) {
 
     if (!labels) { setSuggestions([]); setSearching(false); return }
 
-    // Count usage for each label
-    const { data: counts } = await supabase
-      .from('group_label_assignments')
-      .select('label_id')
+    // Count how many groups AND profiles use each label
+    const [{ data: groupCounts }, { data: profileCounts }] = await Promise.all([
+      supabase.from('group_label_assignments').select('label_id'),
+      supabase.from('profile_label_assignments').select('label_id')
+    ])
 
     const countMap = {}
-    ;(counts || []).forEach(c => {
+    ;[...(groupCounts || []), ...(profileCounts || [])].forEach(c => {
       countMap[c.label_id] = (countMap[c.label_id] || 0) + 1
     })
 
@@ -61,7 +58,7 @@ export default function LabelPicker({ selected, onChange, error }) {
   }
 
   function addLabel(label) {
-    if (selected.length >= MAX_LABELS) return
+    if (selected.length >= max) return
     if (selected.some(s => s.id === label.id)) return
     onChange([...selected, label])
     setQuery('')
@@ -77,31 +74,26 @@ export default function LabelPicker({ selected, onChange, error }) {
     if (name.length < 2) { setCustomError('Label must be at least 2 characters'); return }
     if (name.length > 40) { setCustomError('Label must be 40 characters or less'); return }
     if (isBlacklisted(name)) { setCustomError('This label is not permitted'); return }
-    if (selected.length >= MAX_LABELS) { setCustomError(`Maximum ${MAX_LABELS} labels allowed`); return }
+    if (selected.length >= max) { setCustomError(`Maximum ${max} labels allowed`); return }
     if (selected.some(s => s.name.toLowerCase() === name.toLowerCase())) {
       setCustomError('You already added this label'); return
     }
 
-    // Check if it already exists (case-insensitive)
     const { data: existing } = await supabase
       .from('group_labels')
       .select('id, name')
       .ilike('name', name)
       .maybeSingle()
 
-    if (existing) {
-      addLabel({ ...existing, count: 0 })
-      return
-    }
+    if (existing) { addLabel({ ...existing, count: 0 }); return }
 
-    // Create new label
-    const { data: newLabel, error } = await supabase
+    const { data: newLabel, error: createErr } = await supabase
       .from('group_labels')
       .insert({ name })
       .select()
       .single()
 
-    if (error) { setCustomError('Could not create label: ' + error.message); return }
+    if (createErr) { setCustomError('Could not create label: ' + createErr.message); return }
     addLabel({ ...newLabel, count: 0 })
   }
 
@@ -114,7 +106,7 @@ export default function LabelPicker({ selected, onChange, error }) {
 
   return (
     <div>
-      {/* Selected labels */}
+      {/* Selected chips */}
       {selected.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
           {selected.map(label => (
@@ -128,7 +120,7 @@ export default function LabelPicker({ selected, onChange, error }) {
               {label.name}
               <button onClick={() => removeLabel(label.id)} style={{
                 background: 'none', border: 'none', cursor: 'pointer',
-                color: 'var(--accent)', fontSize: 15, lineHeight: 1,
+                color: 'var(--accent)', fontSize: 16, lineHeight: 1,
                 padding: '0 0 1px', display: 'flex', alignItems: 'center'
               }}>×</button>
             </div>
@@ -137,21 +129,27 @@ export default function LabelPicker({ selected, onChange, error }) {
       )}
 
       {/* Counter */}
-      <div style={{ fontSize: 12, color: selected.length >= MAX_LABELS ? 'var(--accent)' : 'var(--muted)', marginBottom: 8 }}>
-        {selected.length}/{MAX_LABELS} labels selected
-        {selected.length < MIN_LABELS && ' (at least 1 required)'}
+      <div style={{ fontSize: 12, marginBottom: 8, color: selected.length >= max ? 'var(--accent)' : 'var(--muted)' }}>
+        {selected.length}/{max} selected
+        {selected.length < min && ` (at least ${min} required)`}
       </div>
 
-      {/* Search input */}
-      {selected.length < MAX_LABELS && (
+      {/* Input */}
+      {selected.length < max && (
         <div style={{ position: 'relative' }}>
           <div style={{ display: 'flex', gap: 8 }}>
             <input
               ref={inputRef}
               value={query}
               onChange={e => setQuery(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); if (suggestions.length > 0 && !suggestions[0].alreadySelected) addLabel(suggestions[0]); else if (showAddCustom) addCustomLabel() } }}
-              placeholder="Search or create a label..."
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  if (suggestions.length > 0 && !suggestions[0].alreadySelected) addLabel(suggestions[0])
+                  else if (showAddCustom) addCustomLabel()
+                }
+              }}
+              placeholder={placeholder}
               style={{ flex: 1 }}
             />
             {showAddCustom && (
@@ -170,38 +168,31 @@ export default function LabelPicker({ selected, onChange, error }) {
             <div style={{ color: '#e74c3c', fontSize: 12, marginTop: 6 }}>{customError}</div>
           )}
 
-          {/* Suggestions dropdown */}
           {suggestions.length > 0 && (
             <div style={{
-              position: 'absolute', top: '100%', left: 0, right: 0,
-              zIndex: 100, background: 'var(--card)',
-              border: '1.5px solid var(--border)', borderRadius: 10,
-              overflow: 'hidden', marginTop: 4,
+              position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
+              background: 'var(--card)', border: '1.5px solid var(--border)',
+              borderRadius: 10, overflow: 'hidden', marginTop: 4,
               boxShadow: '0 8px 24px rgba(0,0,0,0.3)'
             }}>
-              {suggestions.map(s => (
+              {suggestions.map((s, i) => (
                 <div
                   key={s.id}
                   onClick={() => !s.alreadySelected && addLabel(s)}
                   style={{
                     padding: '10px 14px', cursor: s.alreadySelected ? 'default' : 'pointer',
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    borderBottom: '1px solid var(--border)',
-                    opacity: s.alreadySelected ? 0.45 : 1,
-                    transition: 'background 0.15s'
+                    borderBottom: i < suggestions.length - 1 ? '1px solid var(--border)' : 'none',
+                    opacity: s.alreadySelected ? 0.45 : 1, transition: 'background 0.15s'
                   }}
                   onMouseEnter={e => { if (!s.alreadySelected) e.currentTarget.style.background = 'var(--bg3)' }}
-                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
                 >
                   <span style={{ fontSize: 14, fontWeight: 500 }}>{s.name}</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     {s.count > 0 && (
-                      <span style={{
-                        fontSize: 11, color: 'var(--muted)',
-                        background: 'var(--bg3)', borderRadius: 20,
-                        padding: '2px 8px', fontWeight: 500
-                      }}>
-                        {s.count} {s.count === 1 ? 'group' : 'groups'}
+                      <span style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--bg3)', borderRadius: 20, padding: '2px 8px', fontWeight: 500 }}>
+                        {s.count} {s.count === 1 ? 'use' : 'uses'}
                       </span>
                     )}
                     {s.alreadySelected && (
@@ -218,7 +209,7 @@ export default function LabelPicker({ selected, onChange, error }) {
       {error && <div style={{ color: '#e74c3c', fontSize: 12, marginTop: 8 }}>{error}</div>}
 
       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10, lineHeight: 1.6 }}>
-        Search existing labels or type a new one and click "+ Add". Labels help people find your group.
+        Search existing labels or type your own and click "+ Add"
       </div>
     </div>
   )

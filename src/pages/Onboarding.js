@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import AvatarCropper from '../components/AvatarCropper'
+import LabelPicker from '../components/LabelPicker'
 
 const GENDERS = ['Man', 'Woman', 'Non-binary', 'Prefer not to say']
 const TOTAL_STEPS = 4
@@ -21,7 +22,7 @@ function ProgressBar({ step }) {
   )
 }
 
-// ── Step 1: Personal details ─────────────────────────────────
+// ── Step 1: Personal details ──────────────────────────────────
 function StepPersonal({ data, onChange, onNext }) {
   const [errors, setErrors] = useState({})
 
@@ -29,7 +30,7 @@ function StepPersonal({ data, onChange, onNext }) {
     const e = {}
     if (!data.first_name?.trim()) e.first_name = 'Required'
     if (!data.last_name?.trim()) e.last_name = 'Required'
-    if (!data.age || data.age < 13 || data.age > 120) e.age = 'Enter a valid age'
+    if (!data.age || data.age < 13 || data.age > 120) e.age = 'Enter a valid age (13+)'
     if (!data.gender) e.gender = 'Required'
     setErrors(e)
     return Object.keys(e).length === 0
@@ -102,8 +103,7 @@ function StepPhoto({ userId, onNext, onSkip }) {
   }
 
   async function handleCropSave(blob) {
-    setUploading(true)
-    setCropSrc(null)
+    setUploading(true); setCropSrc(null)
     const path = `${userId}/avatar.jpg`
     const { error } = await supabase.storage.from('avatars').upload(path, blob, { upsert: true, contentType: 'image/jpeg' })
     if (error) { alert('Upload failed: ' + error.message); setUploading(false); return }
@@ -121,7 +121,6 @@ function StepPhoto({ userId, onNext, onSkip }) {
       <h1 style={{ fontSize: '1.8rem', marginBottom: 8 }}>Pose for the camera 📸</h1>
       <p style={{ color: 'var(--muted)', marginBottom: 36 }}>Add a profile picture — be as creative or generic as you like</p>
 
-      {/* Avatar preview */}
       <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 28 }}>
         <div
           onClick={() => !uploading && fileRef.current?.click()}
@@ -130,23 +129,19 @@ function StepPhoto({ userId, onNext, onSkip }) {
             border: `3px dashed ${preview ? 'var(--accent)' : 'var(--border)'}`,
             background: 'var(--bg3)', cursor: uploading ? 'default' : 'pointer',
             display: 'flex', flexDirection: 'column', alignItems: 'center',
-            justifyContent: 'center', gap: 8, overflow: 'hidden', transition: 'border-color 0.2s',
-            position: 'relative'
+            justifyContent: 'center', gap: 8, overflow: 'hidden', transition: 'border-color 0.2s'
           }}
         >
-          {uploading ? (
-            <div className="spinner" />
-          ) : preview ? (
-            <img src={preview} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          ) : (
-            <>
-              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="1.5">
-                <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
-                <circle cx="12" cy="13" r="4"/>
-              </svg>
-              <span style={{ color: 'var(--muted)', fontSize: 12 }}>Upload photo</span>
-            </>
-          )}
+          {uploading ? <div className="spinner" /> : preview
+            ? <img src={preview} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            : <>
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="1.5">
+                  <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
+                  <circle cx="12" cy="13" r="4"/>
+                </svg>
+                <span style={{ color: 'var(--muted)', fontSize: 12 }}>Upload photo</span>
+              </>
+          }
         </div>
       </div>
 
@@ -171,15 +166,9 @@ function StepPhoto({ userId, onNext, onSkip }) {
   )
 }
 
-// ── Step 3: Interests ─────────────────────────────────────────
-function StepInterests({ selected, onToggle, onNext }) {
-  const [interests, setInterests] = useState([])
+// ── Step 3: Interests via LabelPicker ────────────────────────
+function StepInterests({ selected, onChange, onNext }) {
   const [error, setError] = useState('')
-
-  useEffect(() => {
-    supabase.from('interests').select('*').order('name')
-      .then(({ data }) => setInterests(data || []))
-  }, [])
 
   function handleNext() {
     if (selected.length < 3) { setError('Please select at least 3 interests'); return }
@@ -190,37 +179,27 @@ function StepInterests({ selected, onToggle, onNext }) {
   return (
     <div style={{ animation: 'fadeUp 0.35s ease' }}>
       <h1 style={{ fontSize: '1.8rem', marginBottom: 8 }}>What are you into? 🎯</h1>
-      <p style={{ color: 'var(--muted)', marginBottom: 8 }}>Select at least three interests</p>
-      {error && <div style={{ color: '#e74c3c', fontSize: 13, marginBottom: 16 }}>{error}</div>}
+      <p style={{ color: 'var(--muted)', marginBottom: 8, fontSize: 14 }}>
+        Search for interests or add your own — pick at least 3
+      </p>
+      <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 24, lineHeight: 1.6 }}>
+        These help match you with relevant groups and events. You can include activities, communities you belong to, causes you care about, or anything that represents you.
+      </p>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 28 }}>
-        {interests.map(interest => {
-          const isSelected = selected.includes(interest.id)
-          return (
-            <div
-              key={interest.id}
-              onClick={() => onToggle(interest.id)}
-              style={{
-                padding: '14px 16px', borderRadius: 12, cursor: 'pointer', transition: 'all 0.2s',
-                border: `1.5px solid ${isSelected ? 'var(--accent)' : 'var(--border)'}`,
-                background: isSelected ? 'rgba(255,92,53,0.08)' : 'var(--bg3)',
-                display: 'flex', alignItems: 'center', gap: 10
-              }}
-            >
-              <span style={{ fontSize: 24 }}>{interest.emoji}</span>
-              <span style={{ fontWeight: isSelected ? 700 : 400, color: isSelected ? 'var(--accent)' : 'var(--text)', fontSize: 14 }}>
-                {interest.name}
-              </span>
-            </div>
-          )
-        })}
+      <div className="field">
+        <LabelPicker
+          selected={selected}
+          onChange={onChange}
+          min={3}
+          max={10}
+          placeholder="e.g. Gaming, LGBTQ+, Cycling..."
+          error={error}
+        />
       </div>
 
-      <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 16 }}>
-        {selected.length} selected {selected.length < 3 ? `(${3 - selected.length} more to go)` : '✓'}
-      </div>
-
-      <button className="btn btn-primary" onClick={handleNext}>Continue →</button>
+      <button className="btn btn-primary" onClick={handleNext} style={{ marginTop: 16 }}>
+        Continue →
+      </button>
     </div>
   )
 }
@@ -246,16 +225,14 @@ function StepLocation({ data, onChange, onFinish, saving }) {
         lat: parseFloat(r.lat),
         lng: parseFloat(r.lon)
       })))
-    } catch {
-      setSuggestions([])
-    }
+    } catch { setSuggestions([]) }
     setSearching(false)
   }
 
-  useEffect(() => {
+  useState(() => {
     const t = setTimeout(() => searchPlaces(query), 400)
     return () => clearTimeout(t)
-  }, [query])
+  })
 
   function selectPlace(place) {
     setQuery(place.short)
@@ -275,14 +252,14 @@ function StepLocation({ data, onChange, onFinish, saving }) {
     <div style={{ animation: 'fadeUp 0.35s ease' }}>
       <h1 style={{ fontSize: '1.8rem', marginBottom: 8 }}>Where do you call home? 🏡</h1>
       <p style={{ color: 'var(--muted)', marginBottom: 32 }}>
-        This helps us show you events near you. Start typing your town or city.
+        This helps us show you events and groups near you. Start typing your town or city.
       </p>
 
       <div className="field" style={{ position: 'relative' }}>
         <label>Your home town or city</label>
         <input
           value={query}
-          onChange={e => { setQuery(e.target.value); onChange('city', null); onChange('city_lat', null) }}
+          onChange={e => { setQuery(e.target.value); onChange('city', null); onChange('city_lat', null); searchPlaces(e.target.value) }}
           placeholder="e.g. Bristol, Manchester, New York..."
         />
         {searching && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>Searching...</div>}
@@ -296,8 +273,8 @@ function StepLocation({ data, onChange, onFinish, saving }) {
           }}>
             {suggestions.map((s, i) => (
               <div key={i} onClick={() => selectPlace(s)} style={{
-                padding: '12px 16px', cursor: 'pointer', borderBottom: i < suggestions.length - 1 ? '1px solid var(--border)' : 'none',
-                fontSize: 14, transition: 'background 0.15s'
+                padding: '12px 16px', cursor: 'pointer',
+                borderBottom: i < suggestions.length - 1 ? '1px solid var(--border)' : 'none', fontSize: 14
               }}
                 onMouseEnter={e => e.currentTarget.style.background = 'var(--bg3)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
@@ -329,7 +306,7 @@ function StepLocation({ data, onChange, onFinish, saving }) {
 export default function Onboarding() {
   const [step, setStep] = useState(1)
   const [personalData, setPersonalData] = useState({})
-  const [selectedInterests, setSelectedInterests] = useState([])
+  const [selectedLabels, setSelectedLabels] = useState([])
   const [locationData, setLocationData] = useState({})
   const [saving, setSaving] = useState(false)
   const { user } = useAuth()
@@ -338,13 +315,9 @@ export default function Onboarding() {
   function updatePersonal(key, val) { setPersonalData(d => ({ ...d, [key]: val })) }
   function updateLocation(key, val) { setLocationData(d => ({ ...d, [key]: val })) }
 
-  function toggleInterest(id) {
-    setSelectedInterests(s => s.includes(id) ? s.filter(i => i !== id) : [...s, id])
-  }
-
   async function finish() {
     setSaving(true)
-    // Save personal + location data
+
     await supabase.from('profiles').update({
       first_name: personalData.first_name?.trim(),
       last_name: personalData.last_name?.trim(),
@@ -356,11 +329,11 @@ export default function Onboarding() {
       onboarding_complete: true
     }).eq('id', user.id)
 
-    // Save interests — remove old ones first then insert
-    await supabase.from('profile_interests').delete().eq('user_id', user.id)
-    if (selectedInterests.length > 0) {
-      await supabase.from('profile_interests').insert(
-        selectedInterests.map(id => ({ user_id: user.id, interest_id: id }))
+    // Save interests as label assignments
+    await supabase.from('profile_label_assignments').delete().eq('user_id', user.id)
+    if (selectedLabels.length > 0) {
+      await supabase.from('profile_label_assignments').insert(
+        selectedLabels.map(l => ({ user_id: user.id, label_id: l.id }))
       )
     }
 
@@ -378,23 +351,14 @@ export default function Onboarding() {
         <ProgressBar step={step} />
 
         <div style={{ background: 'var(--card)', border: '1.5px solid var(--border)', borderRadius: 20, padding: '40px 36px' }}>
-          {step === 1 && (
-            <StepPersonal data={personalData} onChange={updatePersonal} onNext={() => setStep(2)} />
-          )}
-          {step === 2 && (
-            <StepPhoto userId={user.id} onNext={() => setStep(3)} onSkip={() => setStep(3)} />
-          )}
-          {step === 3 && (
-            <StepInterests selected={selectedInterests} onToggle={toggleInterest} onNext={() => setStep(4)} />
-          )}
-          {step === 4 && (
-            <StepLocation data={locationData} onChange={updateLocation} onFinish={finish} saving={saving} />
-          )}
+          {step === 1 && <StepPersonal data={personalData} onChange={updatePersonal} onNext={() => setStep(2)} />}
+          {step === 2 && <StepPhoto userId={user.id} onNext={() => setStep(3)} onSkip={() => setStep(3)} />}
+          {step === 3 && <StepInterests selected={selectedLabels} onChange={setSelectedLabels} onNext={() => setStep(4)} />}
+          {step === 4 && <StepLocation data={locationData} onChange={updateLocation} onFinish={finish} saving={saving} />}
         </div>
 
         {step > 1 && (
-          <button className="btn btn-ghost" onClick={() => setStep(s => s - 1)}
-            style={{ marginTop: 16, fontSize: 13 }}>
+          <button className="btn btn-ghost" onClick={() => setStep(s => s - 1)} style={{ marginTop: 16, fontSize: 13 }}>
             ← Back
           </button>
         )}
