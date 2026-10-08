@@ -13,7 +13,7 @@ const TABS = ['About', 'Groups', 'Connections']
 export default function Profile() {
   const { id } = useParams()
   const [profile, setProfile] = useState(null)
-  const [interests, setInterests] = useState([]) // label objects {id, name}
+  const [interests, setInterests] = useState([])
   const [memberships, setMemberships] = useState([])
   const [connections, setConnections] = useState([])
   const [pendingReceived, setPendingReceived] = useState([])
@@ -29,6 +29,7 @@ export default function Profile() {
   const [editInterests, setEditInterests] = useState([])
   const [locationQuery, setLocationQuery] = useState('')
   const [locationSuggestions, setLocationSuggestions] = useState([])
+  const [locationTouched, setLocationTouched] = useState(false)
   const [savingEdit, setSavingEdit] = useState(false)
   const [editingUsername, setEditingUsername] = useState(false)
   const [newUsername, setNewUsername] = useState('')
@@ -116,7 +117,7 @@ export default function Profile() {
     setUploadingAvatar(false)
   }
 
-  // Edit profile
+  // Edit profile — reset locationTouched so dropdown doesn't open on load
   function startEdit() {
     setEditData({
       first_name: profile.first_name || '',
@@ -128,14 +129,20 @@ export default function Profile() {
       city_lng: profile.city_lng,
     })
     setLocationQuery(profile.city || '')
-    setEditInterests([...interests]) // pass full label objects
+    setLocationSuggestions([])
+    setLocationTouched(false)
+    setEditInterests([...interests])
     setEditing(true)
   }
 
-  async function searchLocation(q) {
-    if (!q || q.length < 2) { setLocationSuggestions([]); return }
+  // Only search when the user has actively typed
+  async function handleLocationChange(val) {
+    setLocationQuery(val)
+    setLocationTouched(true)
+    setEditData(d => ({ ...d, city: null, city_lat: null, city_lng: null }))
+    if (!val || val.length < 2) { setLocationSuggestions([]); return }
     try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5&featuretype=city,town,village`)
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(val)}&format=json&limit=5&featuretype=city,town,village`)
       const data = await res.json()
       setLocationSuggestions(data.map(r => ({
         short: r.name + (r.address?.country ? `, ${r.address.country}` : ''),
@@ -143,12 +150,6 @@ export default function Profile() {
       })))
     } catch { setLocationSuggestions([]) }
   }
-
-  useEffect(() => {
-    if (!editing) return
-    const t = setTimeout(() => searchLocation(locationQuery), 400)
-    return () => clearTimeout(t)
-  }, [locationQuery, editing])
 
   async function saveEdit() {
     setSavingEdit(true)
@@ -158,7 +159,6 @@ export default function Profile() {
       city: editData.city, city_lat: editData.city_lat, city_lng: editData.city_lng
     }).eq('id', user.id)
 
-    // Replace label assignments
     await supabase.from('profile_label_assignments').delete().eq('user_id', user.id)
     if (editInterests.length > 0) {
       await supabase.from('profile_label_assignments').insert(
@@ -275,7 +275,7 @@ export default function Profile() {
           ))}
         </div>
 
-        {/* ── About tab ── */}
+        {/* ── About tab — view ── */}
         {tab === 'About' && !editing && (
           <div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 24 }}>
@@ -307,40 +307,70 @@ export default function Profile() {
           </div>
         )}
 
-        {/* ── Edit mode ── */}
+        {/* ── About tab — edit ── */}
         {tab === 'About' && editing && (
           <div style={{ animation: 'fadeUp 0.3s ease' }}>
             <div className="form-grid">
-              <div className="field"><label>First Name</label><input value={editData.first_name} onChange={e => setEditData(d => ({ ...d, first_name: e.target.value }))} /></div>
-              <div className="field"><label>Last Name</label><input value={editData.last_name} onChange={e => setEditData(d => ({ ...d, last_name: e.target.value }))} /></div>
-              <div className="field"><label>Age</label><input type="number" value={editData.age} onChange={e => setEditData(d => ({ ...d, age: e.target.value }))} /></div>
+              <div className="field">
+                <label>First Name</label>
+                <input value={editData.first_name} onChange={e => setEditData(d => ({ ...d, first_name: e.target.value }))} />
+              </div>
+              <div className="field">
+                <label>Last Name</label>
+                <input value={editData.last_name} onChange={e => setEditData(d => ({ ...d, last_name: e.target.value }))} />
+              </div>
+              <div className="field">
+                <label>Age</label>
+                <input type="number" min="13" max="120" value={editData.age} onChange={e => setEditData(d => ({ ...d, age: e.target.value }))} />
+              </div>
               <div className="field">
                 <label>Gender</label>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
-                  {GENDERS.map(g => (
-                    <div key={g} onClick={() => setEditData(d => ({ ...d, gender: g }))} style={{ padding: '8px 12px', borderRadius: 8, cursor: 'pointer', border: `1.5px solid ${editData.gender === g ? 'var(--accent)' : 'var(--border)'}`, background: editData.gender === g ? 'rgba(255,92,53,0.08)' : 'var(--bg3)', color: editData.gender === g ? 'var(--accent)' : 'var(--text)', fontSize: 13, fontWeight: editData.gender === g ? 600 : 400 }}>{g}</div>
-                  ))}
-                </div>
+                <select
+                  value={editData.gender}
+                  onChange={e => setEditData(d => ({ ...d, gender: e.target.value }))}
+                  style={{ appearance: 'none', WebkitAppearance: 'none', backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b6b80' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 14px center', paddingRight: 36, cursor: 'pointer' }}
+                >
+                  <option value="">Select gender</option>
+                  {GENDERS.map(g => <option key={g} value={g}>{g}</option>)}
+                </select>
               </div>
             </div>
 
+            {/* City — only shows suggestions after user types */}
             <div className="field" style={{ position: 'relative', marginBottom: 20 }}>
               <label>Home Town / City</label>
-              <input value={locationQuery} onChange={e => { setLocationQuery(e.target.value); setEditData(d => ({ ...d, city: null, city_lat: null, city_lng: null })) }} placeholder="Start typing your city..." />
-              {locationSuggestions.length > 0 && (
-                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: 'var(--card)', border: '1.5px solid var(--border)', borderRadius: 10, overflow: 'hidden', marginTop: 4, boxShadow: '0 8px 24px rgba(0,0,0,0.3)' }}>
+              <input
+                value={locationQuery}
+                onChange={e => handleLocationChange(e.target.value)}
+                placeholder="Start typing your city..."
+              />
+              {locationTouched && locationSuggestions.length > 0 && (
+                <div style={{
+                  position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
+                  background: 'var(--card)', border: '1.5px solid var(--border)',
+                  borderRadius: 10, overflow: 'hidden', marginTop: 4,
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.3)'
+                }}>
                   {locationSuggestions.map((s, i) => (
-                    <div key={i} onClick={() => { setLocationQuery(s.short); setEditData(d => ({ ...d, city: s.short, city_lat: s.lat, city_lng: s.lng })); setLocationSuggestions([]) }}
+                    <div key={i}
+                      onClick={() => {
+                        setLocationQuery(s.short)
+                        setEditData(d => ({ ...d, city: s.short, city_lat: s.lat, city_lng: s.lng }))
+                        setLocationSuggestions([])
+                      }}
                       style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: i < locationSuggestions.length - 1 ? '1px solid var(--border)' : 'none', fontSize: 13 }}
                       onMouseEnter={e => e.currentTarget.style.background = 'var(--bg3)'}
-                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
                       <div style={{ fontWeight: 600 }}>{s.short}</div>
                       <div style={{ color: 'var(--muted)', fontSize: 11, marginTop: 2 }}>{s.display}</div>
                     </div>
                   ))}
                 </div>
               )}
-              {editData.city && <div style={{ fontSize: 12, color: 'var(--success)', marginTop: 6 }}>✓ {editData.city}</div>}
+              {editData.city && (
+                <div style={{ fontSize: 12, color: 'var(--success)', marginTop: 6 }}>✓ {editData.city}</div>
+              )}
             </div>
 
             <div className="field" style={{ marginBottom: 24 }}>
@@ -357,7 +387,9 @@ export default function Profile() {
             </div>
 
             <div style={{ display: 'flex', gap: 10 }}>
-              <button className="btn btn-primary" onClick={saveEdit} disabled={savingEdit}>{savingEdit ? 'Saving...' : 'Save Changes'}</button>
+              <button className="btn btn-primary" onClick={saveEdit} disabled={savingEdit}>
+                {savingEdit ? 'Saving...' : 'Save Changes'}
+              </button>
               <button className="btn btn-ghost" onClick={() => setEditing(false)}>Cancel</button>
             </div>
           </div>
@@ -378,10 +410,14 @@ export default function Profile() {
           ) : memberships.map(m => (
             <div key={m.groups?.id} className="event-card" onClick={() => navigate(`/groups/${m.groups?.id}`)}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                <div style={{ width: 48, height: 48, borderRadius: 12, background: 'var(--accent)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: 20 }}>{m.groups?.name?.[0]?.toUpperCase()}</div>
+                <div style={{ width: 48, height: 48, borderRadius: 12, background: 'var(--accent)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: 20 }}>
+                  {m.groups?.name?.[0]?.toUpperCase()}
+                </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: '1rem', marginBottom: 4 }}>{m.groups?.name}</div>
-                  <span style={{ display: 'inline-block', fontSize: 12, fontWeight: 700, padding: '2px 10px', borderRadius: 20, background: `${roleColor[m.role]}22`, color: roleColor[m.role], border: `1px solid ${roleColor[m.role]}44` }}>{roleLabel[m.role]}</span>
+                  <span style={{ display: 'inline-block', fontSize: 12, fontWeight: 700, padding: '2px 10px', borderRadius: 20, background: `${roleColor[m.role]}22`, color: roleColor[m.role], border: `1px solid ${roleColor[m.role]}44` }}>
+                    {roleLabel[m.role]}
+                  </span>
                 </div>
               </div>
               {m.groups?.description && <p className="event-desc" style={{ marginTop: 10 }}>{m.groups.description}</p>}
