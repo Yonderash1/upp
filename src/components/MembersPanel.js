@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import SidePanel from './SidePanel'
 
 // Ranks shown top to bottom. Add new ranks here later.
 const RANKS = [
@@ -19,21 +20,8 @@ export default function MembersPanel({
   const [hoverId, setHoverId] = useState(null)
 
   return (
-    <aside className={`members-panel ${open ? 'open' : 'closed'}`}>
-      <button
-        className="members-toggle"
-        onClick={onToggle}
-        aria-label={open ? 'Hide members' : 'Show members'}
-        title={open ? 'Hide members' : 'Show members'}
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-          strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-          style={{ transform: open ? 'none' : 'rotate(180deg)', transition: 'transform 0.3s ease' }}>
-          <polyline points="9 6 15 12 9 18" />
-        </svg>
-      </button>
+    <SidePanel open={open} onToggle={onToggle} label="members">
 
-      <div className="members-scroll">
         <h3 className="members-title">
           Members <span>{canSeeMembers ? members.length : memberCount}</span>
         </h3>
@@ -88,7 +76,6 @@ export default function MembersPanel({
             </section>
           )
         })}
-      </div>
-    </aside>
+    </SidePanel>
   )
 }

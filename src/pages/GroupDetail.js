@@ -35,23 +35,20 @@ function Lightbox({ src, onClose }) {
 
   return (
     <div
-      onClick={onClose}
       style={{
         position: 'fixed', inset: 0, zIndex: 9999,
         background: 'rgba(0,0,0,0.92)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: 24, cursor: 'zoom-out'
+        padding: 24
       }}
     >
       <img
         src={src}
         alt="Full size"
-        onClick={e => e.stopPropagation()}
         style={{
           maxWidth: '100%', maxHeight: '90vh',
           borderRadius: 10, objectFit: 'contain',
-          boxShadow: '0 8px 48px rgba(0,0,0,0.6)',
-          cursor: 'default'
+          boxShadow: '0 8px 48px rgba(0,0,0,0.6)'
         }}
       />
       <button
@@ -99,7 +96,7 @@ function PostEventForm({ groupId, userId, editEvent, onSuccess, onCancel }) {
   }
 
   return (
-    <div style={{ background: 'var(--bg2)', border: '1.5px solid var(--accent)', borderRadius: 14, padding: 24, marginBottom: 24 }}>
+    <div style={{ background: 'var(--bg2)', border: '1.5px solid var(--accent)', borderRadius: 14, padding: 24, marginBottom: 24, maxWidth: 820 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <h3 style={{ fontFamily: 'Syne, sans-serif', fontSize: '1.1rem' }}>{editEvent ? 'Edit Event' : 'Post a New Event'}</h3>
         <button onClick={onCancel} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 20, cursor: 'pointer' }}>✕</button>
@@ -180,7 +177,7 @@ function AnnouncementForm({ groupId, userId, onSuccess, onCancel }) {
   }
 
   return (
-    <div style={{ background: 'var(--bg2)', border: '1.5px solid #9b59b6', borderRadius: 14, padding: 24, marginBottom: 24 }}>
+    <div style={{ background: 'var(--bg2)', border: '1.5px solid #9b59b6', borderRadius: 14, padding: 24, marginBottom: 24, maxWidth: 820 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <h3 style={{ fontFamily: 'Syne, sans-serif', fontSize: '1.1rem', color: '#9b59b6' }}>📢 New Announcement</h3>
         <button onClick={onCancel} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 20, cursor: 'pointer' }}>✕</button>
@@ -298,13 +295,6 @@ export default function GroupDetail() {
     setMyMembership(null); fetchAll()
   }
 
-  async function handleDeleteGroup() {
-    if (!window.confirm(`Permanently delete "${group.name}"? This will remove all events and announcements.`)) return
-    const { error } = await supabase.from('groups').delete().eq('id', id)
-    if (error) { alert('Delete failed: ' + error.message); return }
-    navigate('/groups')
-  }
-
   async function handleDeleteEvent(eventId) {
     if (!window.confirm('Delete this event?')) return
     await supabase.from('events').delete().eq('id', eventId)
@@ -356,8 +346,8 @@ export default function GroupDetail() {
     <div className="page">
       {lightboxSrc && <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
 
-      <div className={`group-layout ${membersOpen ? 'panel-open' : ''}`}>
-      <div className="detail-page">
+      <div className="group-layout">
+      <main className="group-main">
         <button className="btn btn-ghost" style={{ marginBottom: 20, padding: '7px 14px', fontSize: 13 }} onClick={() => navigate('/groups')}>
           ← Groups
         </button>
@@ -396,8 +386,8 @@ export default function GroupDetail() {
           </div>
         )}
 
-        {/* Join / Leave / Delete */}
-        <div style={{ display: 'flex', gap: 10, marginBottom: 28, flexWrap: 'wrap' }}>
+        {/* Join / Leave (owners manage the group from Settings) */}
+        {!isOwner && <div style={{ display: 'flex', gap: 10, marginBottom: 28, flexWrap: 'wrap' }}>
           {!isMember && group.join_mode !== 'invite' && (
             <button className="btn btn-primary" onClick={handleJoin} disabled={joining || hasRequested}>
               {hasRequested ? '✓ Request sent' : joining ? 'Joining...' : group.join_mode === 'request' ? 'Request to join' : 'Join group'}
@@ -411,12 +401,7 @@ export default function GroupDetail() {
           {isMember && !isOwner && (
             <button className="btn btn-ghost" onClick={handleLeave} style={{ fontSize: 13 }}>Leave group</button>
           )}
-          {isOwner && (
-            <button onClick={handleDeleteGroup} style={{ background: 'rgba(231,76,60,0.1)', border: '1.5px solid rgba(231,76,60,0.4)', color: '#e74c3c', borderRadius: 10, padding: '7px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Syne, sans-serif' }}>
-              🗑 Delete Group
-            </button>
-          )}
-        </div>
+        </div>}
 
         {/* Pending join requests */}
         {isAdmin && pendingRequests.length > 0 && (
@@ -538,7 +523,7 @@ export default function GroupDetail() {
             </div>
           ))
         )}
-      </div>
+      </main>
 
       <MembersPanel
         members={members}

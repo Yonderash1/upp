@@ -24,6 +24,7 @@ export default function EventDetail() {
   const [attendees, setAttendees] = useState([])
   const [isAttending, setIsAttending] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const { user } = useAuth()
   const navigate = useNavigate()
 
@@ -32,23 +33,48 @@ export default function EventDetail() {
     fetchAttendees()
   }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Gives up after a while, so a stuck request shows an error instead of an endless spinner
+  function withTimeout(promise, ms = 10000) {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('The request timed out')), ms))
+    ])
+  }
+
   async function fetchEvent() {
-    const { data } = await supabase
-      .from('events')
-      .select('*, profiles(username, id), groups(id, name)')
-      .eq('id', id)
-      .single()
-    setEvent(data)
-    setLoading(false)
+    setLoading(true); setLoadError('')
+    try {
+      const { data, error } = await withTimeout(
+        supabase
+          .from('events')
+          .select('*, profiles(username, id), groups(id, name)')
+          .eq('id', id)
+          .maybeSingle()
+      )
+      if (error) throw error
+      setEvent(data)
+    } catch (err) {
+      console.error('Failed to load event:', err)
+      setLoadError(err.message || 'Something went wrong')
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function fetchAttendees() {
-    const { data } = await supabase
-      .from('attendees')
-      .select('user_id, profiles(username)')
-      .eq('event_id', id)
-    setAttendees(data || [])
-    setIsAttending((data || []).some(a => a.user_id === user.id))
+    try {
+      const { data, error } = await withTimeout(
+        supabase
+          .from('attendees')
+          .select('user_id, profiles(username)')
+          .eq('event_id', id)
+      )
+      if (error) throw error
+      setAttendees(data || [])
+      setIsAttending((data || []).some(a => a.user_id === user.id))
+    } catch (err) {
+      console.error('Failed to load attendees:', err)
+    }
   }
 
   async function toggleAttend() {
@@ -61,6 +87,17 @@ export default function EventDetail() {
   }
 
   if (loading) return <div className="loading-screen"><div className="spinner" /></div>
+  if (loadError) return (
+    <div className="page">
+      <div className="detail-page">
+        <button className="btn btn-ghost" style={{ marginBottom: 20, padding: '7px 14px', fontSize: 13 }} onClick={() => navigate(-1)}>← Back</button>
+        <h2 style={{ marginBottom: 8 }}>Couldn't load this event</h2>
+        <p style={{ color: 'var(--muted)', fontSize: 14, marginBottom: 16 }}>{loadError}</p>
+        <button className="btn btn-primary" style={{ width: 'auto', padding: '8px 18px', fontSize: 13 }}
+          onClick={() => { fetchEvent(); fetchAttendees() }}>Try again</button>
+      </div>
+    </div>
+  )
   if (!event) return <div className="page"><div className="detail-page"><h2>Event not found</h2></div></div>
 
   return (
