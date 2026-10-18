@@ -8,6 +8,9 @@ import { useAuth } from '../contexts/AuthContext'
 import { format, formatDistanceToNow } from 'date-fns'
 import MembersPanel from '../components/MembersPanel'
 import GroupAvatar from '../components/GroupAvatar'
+import SidePanel from '../components/SidePanel'
+import GroupNav from '../components/GroupNav'
+import NewPostChooser from '../components/NewPostChooser'
 
 delete L.Icon.Default.prototype._getIconUrl
 L.Icon.Default.mergeOptions({
@@ -142,36 +145,13 @@ function PostEventForm({ groupId, userId, editEvent, onSuccess, onCancel }) {
 function AnnouncementForm({ groupId, userId, onSuccess, onCancel }) {
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
-  const [imageFile, setImageFile] = useState(null)
-  const [imagePreview, setImagePreview] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-
-  function handleImage(e) {
-    const file = e.target.files[0]
-    if (!file) return
-    setImageFile(file)
-    setImagePreview(URL.createObjectURL(file))
-  }
-
-  function removeImage() {
-    setImageFile(null)
-    setImagePreview(null)
-  }
 
   async function handleSubmit(e) {
     e.preventDefault()
     setLoading(true); setError('')
-    let image_url = null
-    if (imageFile) {
-      const ext = imageFile.name.split('.').pop()
-      const path = `${groupId}/${Date.now()}.${ext}`
-      const { error: uploadErr } = await supabase.storage.from('announcements').upload(path, imageFile, { upsert: true })
-      if (uploadErr) { setError('Image upload failed: ' + uploadErr.message); setLoading(false); return }
-      const { data: urlData } = supabase.storage.from('announcements').getPublicUrl(path)
-      image_url = urlData.publicUrl
-    }
-    const { error: err } = await supabase.from('announcements').insert({ group_id: groupId, user_id: userId, title, body, image_url })
+    const { error: err } = await supabase.from('announcements').insert({ group_id: groupId, user_id: userId, title, body })
     if (err) { setError(err.message); setLoading(false) }
     else onSuccess()
   }
@@ -186,35 +166,6 @@ function AnnouncementForm({ groupId, userId, onSuccess, onCancel }) {
       <form onSubmit={handleSubmit}>
         <div className="field"><label>Title</label><input value={title} onChange={e => setTitle(e.target.value)} placeholder="Announcement title" required /></div>
         <div className="field"><label>Message</label><textarea value={body} onChange={e => setBody(e.target.value)} placeholder="What do you want to tell your members?" rows={4} required /></div>
-
-        <div className="field">
-          <label>Image (optional)</label>
-          {!imagePreview ? (
-            <input type="file" accept="image/*" onChange={handleImage} style={{ padding: '8px', cursor: 'pointer' }} />
-          ) : (
-            <div style={{ position: 'relative', display: 'inline-block', width: '100%' }}>
-              <img
-                src={imagePreview} alt="preview"
-                style={{ width: '100%', maxHeight: 220, objectFit: 'cover', borderRadius: 8, display: 'block' }}
-              />
-              <button
-                type="button"
-                onClick={removeImage}
-                style={{
-                  position: 'absolute', top: 8, right: 8,
-                  background: 'rgba(0,0,0,0.7)', border: 'none',
-                  color: '#fff', borderRadius: '50%', width: 32, height: 32,
-                  fontSize: 16, cursor: 'pointer', display: 'flex',
-                  alignItems: 'center', justifyContent: 'center', fontWeight: 700
-                }}
-              >✕</button>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
-                {imageFile?.name} · <button type="button" onClick={removeImage} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12, cursor: 'pointer', padding: 0 }}>Remove</button>
-              </div>
-            </div>
-          )}
-        </div>
-
         <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
           <button className="btn btn-primary" type="submit" disabled={loading} style={{ background: '#9b59b6' }}>
             {loading ? 'Posting...' : 'Post Announcement'}
@@ -239,12 +190,14 @@ export default function GroupDetail() {
   const [loading, setLoading] = useState(true)
   const [joining, setJoining] = useState(false)
   const [hasRequested, setHasRequested] = useState(false)
-  const [showPostForm, setShowPostForm] = useState(false)
-  const [showAnnounceForm, setShowAnnounceForm] = useState(false)
+  // null | 'choose' | 'event' | 'announcement'  (what the "New post" flow is showing)
+  const [composer, setComposer] = useState(null)
   const [editingEvent, setEditingEvent] = useState(null)
   const [lightboxSrc, setLightboxSrc] = useState(null)
   const [labels, setLabels] = useState([])
   const [membersOpen, setMembersOpen] = useState(() => window.innerWidth > 900)
+  const [navOpen, setNavOpen] = useState(() => window.innerWidth > 900)
+  const [view, setView] = useState('feed')
   const { user } = useAuth()
   const navigate = useNavigate()
 
@@ -347,6 +300,10 @@ export default function GroupDetail() {
       {lightboxSrc && <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
 
       <div className="group-layout">
+      <SidePanel side="left" open={navOpen} onToggle={() => setNavOpen(o => !o)} label="menu" width={200}>
+        <GroupNav active={view} onSelect={setView} />
+      </SidePanel>
+
       <main className="group-main">
         <button className="btn btn-ghost" style={{ marginBottom: 20, padding: '7px 14px', fontSize: 13 }} onClick={() => navigate('/groups')}>
           ← Groups
@@ -422,37 +379,38 @@ export default function GroupDetail() {
           </div>
         )}
 
-        {/* Admin action buttons */}
-        {isAdmin && !showPostForm && !showAnnounceForm && !editingEvent && (
-          <div style={{ display: 'flex', gap: 10, marginBottom: 24, flexWrap: 'wrap' }}>
-            <button className="btn btn-primary" style={{ width: 'auto', padding: '8px 18px', fontSize: 13 }} onClick={() => setShowPostForm(true)}>
-              📅 Post Event
+        {/* Feed header + New post */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14, paddingBottom: 10, borderBottom: '1px solid var(--border)' }}>
+          <h3 style={{ fontSize: '1rem' }}>Group Feed</h3>
+          {isAdmin && !composer && !editingEvent && (
+            <button className="btn btn-primary" style={{ width: 'auto', padding: '8px 18px', fontSize: 13 }} onClick={() => setComposer('choose')}>
+              ＋ New post
             </button>
-            <button onClick={() => setShowAnnounceForm(true)} style={{ background: 'rgba(155,89,182,0.15)', border: '1.5px solid rgba(155,89,182,0.4)', color: '#9b59b6', borderRadius: 10, padding: '8px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Syne, sans-serif' }}>
-              📢 Announcement
-            </button>
-          </div>
+          )}
+        </div>
+
+        {composer === 'choose' && (
+          <NewPostChooser onSelect={setComposer} onCancel={() => setComposer(null)} />
         )}
 
-        {(showPostForm || editingEvent) && (
+        {(composer === 'event' || editingEvent) && (
           <PostEventForm groupId={id} userId={user.id} editEvent={editingEvent}
-            onSuccess={() => { setShowPostForm(false); setEditingEvent(null); fetchAll() }}
-            onCancel={() => { setShowPostForm(false); setEditingEvent(null) }}
+            onSuccess={() => { setComposer(null); setEditingEvent(null); fetchAll() }}
+            onCancel={() => { setComposer(null); setEditingEvent(null) }}
           />
         )}
 
-        {showAnnounceForm && (
+        {composer === 'announcement' && (
           <AnnouncementForm groupId={id} userId={user.id}
-            onSuccess={() => { setShowAnnounceForm(false); fetchAll() }}
-            onCancel={() => setShowAnnounceForm(false)}
+            onSuccess={() => { setComposer(null); fetchAll() }}
+            onCancel={() => setComposer(null)}
           />
         )}
 
         {/* Feed */}
-        <h3 className="section-title">Group Feed</h3>
         {feed.length === 0 ? (
           <p style={{ color: 'var(--muted)', fontSize: 14, marginBottom: 28 }}>
-            {isAdmin ? 'No posts yet — post an event or announcement above!' : 'Nothing posted yet'}
+            {isAdmin ? 'No posts yet — hit "New post" to get started!' : 'Nothing posted yet'}
           </p>
         ) : (
           feed.map(item => item._type === 'event' ? (
@@ -474,7 +432,7 @@ export default function GroupDetail() {
                   <div style={{ display: 'flex', gap: 8, marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}
                     onClick={e => e.stopPropagation()}>
                     <button className="btn btn-ghost" style={{ padding: '5px 12px', fontSize: 12 }}
-                      onClick={() => { setEditingEvent(item); setShowPostForm(false); setShowAnnounceForm(false) }}>
+                      onClick={() => { setEditingEvent(item); setComposer(null) }}>
                       ✏ Edit
                     </button>
                     <button className="btn btn-ghost" style={{ padding: '5px 12px', fontSize: 12, color: '#e74c3c', borderColor: '#e74c3c' }}
@@ -498,7 +456,7 @@ export default function GroupDetail() {
               <h3 className="event-title">{item.title}</h3>
               <p style={{ color: 'var(--muted)', fontSize: 14, lineHeight: 1.6, marginTop: 6 }}>{item.body}</p>
               {item.image_url && (
-                <div style={{ marginTop: 12, borderRadius: 8, overflow: 'hidden', cursor: 'zoom-in' }}
+                <div style={{ marginTop: 12, borderRadius: 8, overflow: 'hidden', cursor: 'pointer' }}
                   onClick={() => setLightboxSrc(item.image_url)}>
                   <img
                     src={item.image_url}

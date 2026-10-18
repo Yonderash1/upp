@@ -20,7 +20,7 @@ export default function MembersPanel({
   const [hoverId, setHoverId] = useState(null)
 
   return (
-    <SidePanel open={open} onToggle={onToggle} label="members">
+    <SidePanel side="right" open={open} onToggle={onToggle} label="members">
 
         <h3 className="members-title">
           Members <span>{canSeeMembers ? members.length : memberCount}</span>
