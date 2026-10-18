@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import LabelPicker from '../components/LabelPicker'
+import AvatarCropper from '../components/AvatarCropper'
+import GroupAvatar from '../components/GroupAvatar'
 
 const JOIN_MODES = [
   { value: 'open', label: 'Open', desc: 'Anyone can join instantly' },
@@ -24,6 +26,9 @@ export default function GroupSettings() {
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
   const [isOwner, setIsOwner] = useState(false)
+  const [cropSrc, setCropSrc] = useState(null)
+  const [uploadingImage, setUploadingImage] = useState(false)
+  const fileInputRef = useRef(null)
   const { user } = useAuth()
   const navigate = useNavigate()
 
@@ -87,6 +92,38 @@ export default function GroupSettings() {
     setSaving(false)
   }
 
+  function handleImageSelect(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => setCropSrc(ev.target.result)
+    reader.readAsDataURL(file)
+    e.target.value = ''
+  }
+
+  async function handleCropSave(blob) {
+    setUploadingImage(true); setCropSrc(null); setError('')
+    const path = `${id}/avatar.jpg`
+    const { error: uploadErr } = await supabase.storage
+      .from('group-avatars')
+      .upload(path, blob, { upsert: true, contentType: 'image/jpeg' })
+    if (uploadErr) { setError('Image upload failed: ' + uploadErr.message); setUploadingImage(false); return }
+    const { data: urlData } = supabase.storage.from('group-avatars').getPublicUrl(path)
+    const image_url = urlData.publicUrl + '?t=' + Date.now()
+    const { error: updateErr } = await supabase.from('groups').update({ image_url }).eq('id', id)
+    if (updateErr) { setError(updateErr.message); setUploadingImage(false); return }
+    setGroup(g => ({ ...g, image_url }))
+    setUploadingImage(false)
+  }
+
+  async function handleRemoveImage() {
+    if (!window.confirm('Remove the group image?')) return
+    await supabase.storage.from('group-avatars').remove([`${id}/avatar.jpg`])
+    const { error: updateErr } = await supabase.from('groups').update({ image_url: null }).eq('id', id)
+    if (updateErr) { setError(updateErr.message); return }
+    setGroup(g => ({ ...g, image_url: null }))
+  }
+
   async function handleDelete() {
     if (!window.confirm(`Permanently delete "${group.name}"? This will remove all events and announcements.`)) return
     await supabase.from('groups').delete().eq('id', id)
@@ -97,6 +134,10 @@ export default function GroupSettings() {
 
   return (
     <div className="page">
+      {cropSrc && (
+        <AvatarCropper imageSrc={cropSrc} title="Adjust group image"
+          onSave={handleCropSave} onCancel={() => setCropSrc(null)} />
+      )}
       <div className="create-page">
         <button className="btn btn-ghost" style={{ marginBottom: 20, padding: '7px 14px', fontSize: 13 }}
           onClick={() => navigate(`/groups/${id}`)}>
@@ -111,6 +152,33 @@ export default function GroupSettings() {
             ✓ Settings saved
           </div>
         )}
+
+        <div className="field" style={{ marginBottom: 24 }}>
+          <label>Group Image</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 8 }}>
+            <div style={{ position: 'relative' }}>
+              <GroupAvatar group={group} size={80} />
+              {uploadingImage && (
+                <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <div className="spinner" style={{ width: 24, height: 24, borderWidth: 2 }} />
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
+              <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageSelect} style={{ display: 'none' }} />
+              <button type="button" className="btn btn-ghost" style={{ padding: '7px 14px', fontSize: 13 }}
+                disabled={uploadingImage} onClick={() => fileInputRef.current?.click()}>
+                {group.image_url ? 'Change image' : 'Upload image'}
+              </button>
+              {group.image_url && (
+                <button type="button" onClick={handleRemoveImage}
+                  style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, cursor: 'pointer', padding: 0 }}>
+                  Remove image
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
 
         <form onSubmit={handleSave}>
           <div className="field">

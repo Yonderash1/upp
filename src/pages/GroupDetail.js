@@ -6,6 +6,8 @@ import 'leaflet/dist/leaflet.css'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { format, formatDistanceToNow } from 'date-fns'
+import MembersPanel from '../components/MembersPanel'
+import GroupAvatar from '../components/GroupAvatar'
 
 delete L.Icon.Default.prototype._getIconUrl
 L.Icon.Default.mergeOptions({
@@ -245,6 +247,7 @@ export default function GroupDetail() {
   const [editingEvent, setEditingEvent] = useState(null)
   const [lightboxSrc, setLightboxSrc] = useState(null)
   const [labels, setLabels] = useState([])
+  const [membersOpen, setMembersOpen] = useState(() => window.innerWidth > 900)
   const { user } = useAuth()
   const navigate = useNavigate()
 
@@ -257,7 +260,7 @@ export default function GroupDetail() {
   async function fetchAll() {
     const [groupRes, membersRes, eventsRes, announcementsRes, myRes, memberData, requestRes, myRequestRes, labelData] = await Promise.all([
       supabase.from('groups').select('*').eq('id', id).single(),
-      supabase.from('group_members').select('*, profiles(id, username)').eq('group_id', id),
+      supabase.from('group_members').select('*, profiles(id, username, avatar_url)').eq('group_id', id).order('joined_at', { ascending: true }),
       supabase.from('events').select('*, profiles(username)').eq('group_id', id).order('event_date', { ascending: true }).gte('event_date', new Date().toISOString()),
       supabase.from('announcements').select('*, profiles(username)').eq('group_id', id).order('created_at', { ascending: false }),
       supabase.from('group_members').select('role').eq('group_id', id).eq('user_id', user.id).maybeSingle(),
@@ -353,6 +356,7 @@ export default function GroupDetail() {
     <div className="page">
       {lightboxSrc && <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
 
+      <div className={`group-layout ${membersOpen ? 'panel-open' : ''}`}>
       <div className="detail-page">
         <button className="btn btn-ghost" style={{ marginBottom: 20, padding: '7px 14px', fontSize: 13 }} onClick={() => navigate('/groups')}>
           ← Groups
@@ -360,9 +364,7 @@ export default function GroupDetail() {
 
         {/* Header */}
         <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', marginBottom: 24 }}>
-          <div style={{ width: 64, height: 64, borderRadius: 16, background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: 28, flexShrink: 0 }}>
-            {group.name[0].toUpperCase()}
-          </div>
+          <GroupAvatar group={group} size={64} />
           <div style={{ flex: 1 }}>
             <h1 style={{ fontSize: '1.6rem', marginBottom: 4 }}>{group.name}</h1>
             <div style={{ display: 'flex', gap: 14, color: 'var(--muted)', fontSize: 13, flexWrap: 'wrap' }}>
@@ -536,30 +538,19 @@ export default function GroupDetail() {
             </div>
           ))
         )}
+      </div>
 
-        {/* Members */}
-        <div style={{ marginTop: 12 }}>
-          <h3 className="section-title">{canSeeMembers ? `Members (${members.length})` : `${memberCount} members`}</h3>
-          {!canSeeMembers && <p style={{ fontSize: 13, color: 'var(--muted)' }}>Member list is only visible to admins</p>}
-          {canSeeMembers && members.map(m => (
-            <div key={m.user_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }} onClick={() => navigate(`/profile/${m.profiles?.id}`)}>
-                <div className="avatar-sm">{m.profiles?.username?.[0]?.toUpperCase()}</div>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 500 }}>@{m.profiles?.username}</div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>{roleLabel[m.role]}</div>
-                </div>
-              </div>
-              {isOwner && m.user_id !== user.id && m.role !== 'owner' && (
-                <div style={{ display: 'flex', gap: 6 }}>
-                  {m.role === 'member' && <button className="attend-btn" style={{ fontSize: 12 }} onClick={() => changeRole(m.user_id, 'admin')}>Make Admin</button>}
-                  {m.role === 'admin' && <button className="btn btn-ghost" style={{ padding: '5px 10px', fontSize: 12 }} onClick={() => changeRole(m.user_id, 'member')}>Demote</button>}
-                  <button className="btn btn-ghost" style={{ padding: '5px 10px', fontSize: 12, color: '#e74c3c', borderColor: '#e74c3c' }} onClick={() => removeMember(m.user_id)}>Remove</button>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+      <MembersPanel
+        members={members}
+        memberCount={memberCount}
+        canSeeMembers={canSeeMembers}
+        isOwner={isOwner}
+        currentUserId={user.id}
+        onChangeRole={changeRole}
+        onRemove={removeMember}
+        open={membersOpen}
+        onToggle={() => setMembersOpen(o => !o)}
+      />
       </div>
     </div>
   )

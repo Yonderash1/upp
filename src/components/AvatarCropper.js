@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react'
 
-export default function AvatarCropper({ imageSrc, onSave, onCancel }) {
+export default function AvatarCropper({ imageSrc, onSave, onCancel, title = 'Adjust your photo' }) {
   const [scale, setScale] = useState(1)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const [dragging, setDragging] = useState(false)
@@ -92,7 +92,7 @@ export default function AvatarCropper({ imageSrc, onSave, onCancel }) {
         padding: 32, maxWidth: 380, width: '100%',
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20
       }}>
-        <h3 style={{ fontFamily: 'Syne, sans-serif', fontSize: '1.1rem', margin: 0 }}>Adjust your photo</h3>
+        <h3 style={{ fontFamily: 'Syne, sans-serif', fontSize: '1.1rem', margin: 0 }}>{title}</h3>
         <p style={{ color: 'var(--muted)', fontSize: 13, margin: 0, textAlign: 'center' }}>
           Drag to reposition · Scroll or use slider to zoom
         </p>

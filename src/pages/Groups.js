@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import GroupAvatar from '../components/GroupAvatar'
 
 export default function Groups() {
   const [groups, setGroups] = useState([])
@@ -95,13 +96,7 @@ export default function Groups() {
               onClick={() => navigate(`/groups/${group.id}`)}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 10 }}>
-                <div style={{
-                  width: 48, height: 48, borderRadius: 12, background: 'var(--accent)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: 20, flexShrink: 0
-                }}>
-                  {group.name[0].toUpperCase()}
-                </div>
+                <GroupAvatar group={group} size={48} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 3 }}>
                     <h3 style={{ fontSize: '1rem', margin: 0 }}>{group.name}</h3>
