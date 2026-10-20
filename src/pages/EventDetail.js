@@ -5,7 +5,10 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { format, formatDistanceToNow } from 'date-fns'
+import { formatDistanceToNow } from 'date-fns'
+import EventLabels from '../components/EventLabels'
+import Linkify from '../components/Linkify'
+import { formatEventRange } from '../lib/eventUtils'
 
 delete L.Icon.Default.prototype._getIconUrl
 L.Icon.Default.mergeOptions({
@@ -47,7 +50,7 @@ export default function EventDetail() {
       const { data, error } = await withTimeout(
         supabase
           .from('events')
-          .select('*, profiles(username, id), groups(id, name)')
+          .select('*, profiles(username, id), groups(id, name), event_label_assignments(group_labels(id, name))')
           .eq('id', id)
           .maybeSingle()
       )
@@ -117,14 +120,14 @@ export default function EventDetail() {
         )}
 
         <div className="detail-header">
-          <span className="event-category">{event.category}</span>
+          <EventLabels event={event} />
           <h1>{event.title}</h1>
         </div>
 
         <div className="detail-meta">
           <div className="detail-meta-row">
             <CalIcon />
-            {format(new Date(event.event_date), 'EEEE, MMMM d yyyy · h:mm a')}
+            {formatEventRange(event.event_date, event.event_end, true)}
           </div>
           <div className="detail-meta-row">
             <PinIcon />
@@ -141,7 +144,14 @@ export default function EventDetail() {
           </div>
         </div>
 
-        {event.description && <p className="detail-desc">{event.description}</p>}
+        {event.description && <p className="detail-desc"><Linkify text={event.description} /></p>}
+
+        {event.location_details && (
+          <div style={{ marginBottom: 24 }}>
+            <h3 className="section-title">{event.location_type === 'online' ? 'Online event details' : 'Location details'}</h3>
+            <p className="detail-desc" style={{ marginBottom: 0 }}><Linkify text={event.location_details} /></p>
+          </div>
+        )}
 
         <div className="attendees-section">
           <h3 className="section-title">{attendees.length} {attendees.length === 1 ? 'person' : 'people'} going</h3>

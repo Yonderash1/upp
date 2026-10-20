@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { format } from 'date-fns'
+import EventLabels from '../components/EventLabels'
+import { formatEventRange } from '../lib/eventUtils'
 
 const CalIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
 const PinIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
@@ -22,7 +23,7 @@ export default function Home() {
   async function fetchEvents() {
     const { data } = await supabase
       .from('events')
-      .select('*, profiles(username), groups(id, name)')
+      .select('*, profiles(username), groups(id, name), event_label_assignments(group_labels(id, name))')
       .order('event_date', { ascending: true })
       .gte('event_date', new Date().toISOString())
     setEvents(data || [])
@@ -69,10 +70,10 @@ export default function Home() {
         ) : (
           events.map(event => (
             <div key={event.id} className="event-card" onClick={() => navigate(`/event/${event.id}`)}>
-              <span className="event-category">{event.category || 'Event'}</span>
+              <EventLabels event={event} />
               <h3 className="event-title">{event.title}</h3>
               <div className="event-meta">
-                <span><CalIcon /> {format(new Date(event.event_date), 'EEE, MMM d · h:mm a')}</span>
+                <span><CalIcon /> {formatEventRange(event.event_date, event.event_end)}</span>
                 <span><PinIcon /> {event.location_name}</span>
               </div>
               {event.description && <p className="event-desc">{event.description}</p>}
