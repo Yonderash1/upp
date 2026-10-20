@@ -118,7 +118,7 @@ export default function LabelPicker({ selected, onChange, error, min = 1, max = 
               fontSize: 13, fontWeight: 600, color: 'var(--accent)'
             }}>
               {label.name}
-              <button onClick={() => removeLabel(label.id)} style={{
+              <button type="button" onClick={() => removeLabel(label.id)} style={{
                 background: 'none', border: 'none', cursor: 'pointer',
                 color: 'var(--accent)', fontSize: 16, lineHeight: 1,
                 padding: '0 0 1px', display: 'flex', alignItems: 'center'

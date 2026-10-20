@@ -1,32 +1,21 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet'
-import L from 'leaflet'
-import 'leaflet/dist/leaflet.css'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { format, formatDistanceToNow } from 'date-fns'
+import { formatDistanceToNow } from 'date-fns'
 import MembersPanel from '../components/MembersPanel'
 import GroupAvatar from '../components/GroupAvatar'
 import SidePanel from '../components/SidePanel'
 import GroupNav from '../components/GroupNav'
 import NewPostChooser from '../components/NewPostChooser'
+import Modal from '../components/Modal'
+import EventForm from '../components/EventForm'
+import EventLabels from '../components/EventLabels'
+import { formatEventRange } from '../lib/eventUtils'
+import { describeJoinAccess } from '../lib/eventAccess'
 
-delete L.Icon.Default.prototype._getIconUrl
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
-  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
-})
-
-const CATEGORIES = ['Music', 'Sport', 'Food', 'Art', 'Social', 'Tech', 'Outdoor', 'Festival', 'Other']
 const joinModeLabel = { open: 'Open', request: 'Request to join', invite: 'Invite only' }
 const roleLabel = { owner: '👑 Owner', admin: '⚡ Admin', member: 'Member' }
-
-function LocationPicker({ onSelect }) {
-  useMapEvents({ click(e) { onSelect(e.latlng) } })
-  return null
-}
 
 // ── Lightbox ─────────────────────────────────────────────────
 function Lightbox({ src, onClose }) {
@@ -68,112 +57,40 @@ function Lightbox({ src, onClose }) {
   )
 }
 
-// ── Post Event Form ───────────────────────────────────────────
-function PostEventForm({ groupId, userId, editEvent, onSuccess, onCancel }) {
-  const [title, setTitle] = useState(editEvent?.title || '')
-  const [description, setDescription] = useState(editEvent?.description || '')
-  const [locationName, setLocationName] = useState(editEvent?.location_name || '')
-  const [date, setDate] = useState(editEvent ? editEvent.event_date.slice(0, 10) : '')
-  const [time, setTime] = useState(editEvent ? editEvent.event_date.slice(11, 16) : '')
-  const [category, setCategory] = useState(editEvent?.category || 'Social')
-  const [latlng, setLatlng] = useState(editEvent?.lat ? { lat: editEvent.lat, lng: editEvent.lng } : null)
+// ── Announcement Form (create + edit) ────────────────────────
+function AnnouncementForm({ groupId, userId, editAnnouncement, onSuccess, onCancel }) {
+  const [title, setTitle] = useState(editAnnouncement?.title || '')
+  const [body, setBody] = useState(editAnnouncement?.body || '')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   async function handleSubmit(e) {
     e.preventDefault()
-    if (!latlng) { setError('Please click the map to pin the location'); return }
-    if (!date || !time) { setError('Please set a date and time'); return }
     setLoading(true); setError('')
-    const payload = {
-      title, description, location_name: locationName,
-      lat: latlng.lat, lng: latlng.lng,
-      event_date: new Date(`${date}T${time}`).toISOString(),
-      category, user_id: userId, group_id: groupId,
+    if (editAnnouncement) {
+      const { data, error: err } = await supabase
+        .from('announcements').update({ title, body }).eq('id', editAnnouncement.id).select('id')
+      if (err) { setError(err.message); setLoading(false); return }
+      if (!data || data.length === 0) { setError("You don't have permission to edit this announcement"); setLoading(false); return }
+    } else {
+      const { error: err } = await supabase.from('announcements').insert({ group_id: groupId, user_id: userId, title, body })
+      if (err) { setError(err.message); setLoading(false); return }
     }
-    const { error: err } = editEvent
-      ? await supabase.from('events').update(payload).eq('id', editEvent.id)
-      : await supabase.from('events').insert(payload)
-    if (err) { setError(err.message); setLoading(false) }
-    else onSuccess()
+    onSuccess()
   }
 
   return (
-    <div style={{ background: 'var(--bg2)', border: '1.5px solid var(--accent)', borderRadius: 14, padding: 24, marginBottom: 24, maxWidth: 820 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <h3 style={{ fontFamily: 'Syne, sans-serif', fontSize: '1.1rem' }}>{editEvent ? 'Edit Event' : 'Post a New Event'}</h3>
-        <button onClick={onCancel} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 20, cursor: 'pointer' }}>✕</button>
-      </div>
+    <form onSubmit={handleSubmit}>
+      <div className="field"><label>Title</label><input value={title} onChange={e => setTitle(e.target.value)} placeholder="Announcement title" required autoFocus /></div>
+      <div className="field"><label>Message</label><textarea value={body} onChange={e => setBody(e.target.value)} placeholder="What do you want to tell your members?" rows={5} required /></div>
       {error && <div className="error-msg">{error}</div>}
-      <form onSubmit={handleSubmit}>
-        <div className="field"><label>Event Title</label><input value={title} onChange={e => setTitle(e.target.value)} placeholder="Give your event a name" required /></div>
-        <div className="field">
-          <label>Category</label>
-          <div className="category-grid">
-            {CATEGORIES.map(cat => (
-              <button type="button" key={cat} className={`category-btn ${category === cat ? 'active' : ''}`} onClick={() => setCategory(cat)}>{cat}</button>
-            ))}
-          </div>
-        </div>
-        <div className="form-grid">
-          <div className="field"><label>Date</label><input type="date" value={date} onChange={e => setDate(e.target.value)} required /></div>
-          <div className="field"><label>Time</label><input type="time" value={time} onChange={e => setTime(e.target.value)} required /></div>
-        </div>
-        <div className="field"><label>Location Name</label><input value={locationName} onChange={e => setLocationName(e.target.value)} placeholder="e.g. The Sports Centre, Bristol" required /></div>
-        <div className="field">
-          <label>Pin on the map</label>
-          <div className="location-picker">
-            <MapContainer center={latlng ? [latlng.lat, latlng.lng] : [54.5, -3]} zoom={latlng ? 13 : 5} style={{ height: 200 }}>
-              <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-              <LocationPicker onSelect={setLatlng} />
-              {latlng && <Marker position={latlng} />}
-            </MapContainer>
-            <div className="location-hint">{latlng ? `📍 ${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}` : 'Click the map to drop a pin'}</div>
-          </div>
-        </div>
-        <div className="field"><label>Description (optional)</label><textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Any details people should know..." rows={3} /></div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button className="btn btn-primary" type="submit" disabled={loading}>{loading ? 'Saving...' : editEvent ? 'Save Changes' : 'Post Event'}</button>
-          <button type="button" className="btn btn-ghost" onClick={onCancel}>Cancel</button>
-        </div>
-      </form>
-    </div>
-  )
-}
-
-// ── Announcement Form ─────────────────────────────────────────
-function AnnouncementForm({ groupId, userId, onSuccess, onCancel }) {
-  const [title, setTitle] = useState('')
-  const [body, setBody] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-
-  async function handleSubmit(e) {
-    e.preventDefault()
-    setLoading(true); setError('')
-    const { error: err } = await supabase.from('announcements').insert({ group_id: groupId, user_id: userId, title, body })
-    if (err) { setError(err.message); setLoading(false) }
-    else onSuccess()
-  }
-
-  return (
-    <div style={{ background: 'var(--bg2)', border: '1.5px solid #9b59b6', borderRadius: 14, padding: 24, marginBottom: 24, maxWidth: 820 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <h3 style={{ fontFamily: 'Syne, sans-serif', fontSize: '1.1rem', color: '#9b59b6' }}>📢 New Announcement</h3>
-        <button onClick={onCancel} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 20, cursor: 'pointer' }}>✕</button>
+      <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+        <button className="btn btn-primary" type="submit" disabled={loading} style={{ background: '#9b59b6' }}>
+          {loading ? 'Saving...' : editAnnouncement ? 'Save changes' : 'Post Announcement'}
+        </button>
+        <button type="button" className="btn btn-ghost" onClick={onCancel}>Cancel</button>
       </div>
-      {error && <div className="error-msg">{error}</div>}
-      <form onSubmit={handleSubmit}>
-        <div className="field"><label>Title</label><input value={title} onChange={e => setTitle(e.target.value)} placeholder="Announcement title" required /></div>
-        <div className="field"><label>Message</label><textarea value={body} onChange={e => setBody(e.target.value)} placeholder="What do you want to tell your members?" rows={4} required /></div>
-        <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
-          <button className="btn btn-primary" type="submit" disabled={loading} style={{ background: '#9b59b6' }}>
-            {loading ? 'Posting...' : 'Post Announcement'}
-          </button>
-          <button type="button" className="btn btn-ghost" onClick={onCancel}>Cancel</button>
-        </div>
-      </form>
-    </div>
+    </form>
   )
 }
 
@@ -193,6 +110,7 @@ export default function GroupDetail() {
   // null | 'choose' | 'event' | 'announcement'  (what the "New post" flow is showing)
   const [composer, setComposer] = useState(null)
   const [editingEvent, setEditingEvent] = useState(null)
+  const [editingAnnouncement, setEditingAnnouncement] = useState(null)
   const [lightboxSrc, setLightboxSrc] = useState(null)
   const [labels, setLabels] = useState([])
   const [membersOpen, setMembersOpen] = useState(() => window.innerWidth > 900)
@@ -211,7 +129,7 @@ export default function GroupDetail() {
     const [groupRes, membersRes, eventsRes, announcementsRes, myRes, memberData, requestRes, myRequestRes, labelData] = await Promise.all([
       supabase.from('groups').select('*').eq('id', id).single(),
       supabase.from('group_members').select('*, profiles(id, username, avatar_url)').eq('group_id', id).order('joined_at', { ascending: true }),
-      supabase.from('events').select('*, profiles(username)').eq('group_id', id).order('event_date', { ascending: true }).gte('event_date', new Date().toISOString()),
+      supabase.from('events').select('*, profiles(username), event_label_assignments(group_labels(id, name))').eq('group_id', id).order('event_date', { ascending: true }).gte('event_date', new Date().toISOString()),
       supabase.from('announcements').select('*, profiles(username)').eq('group_id', id).order('created_at', { ascending: false }),
       supabase.from('group_members').select('role').eq('group_id', id).eq('user_id', user.id).maybeSingle(),
       supabase.from('group_members').select('user_id').eq('group_id', id),
@@ -295,9 +213,30 @@ export default function GroupDetail() {
     return dateA - dateB
   })
 
+  const modalOpen = !!(composer || editingEvent || editingAnnouncement)
+  const modalTitle = editingEvent ? 'Edit event'
+    : editingAnnouncement ? 'Edit announcement'
+    : composer === 'event' ? 'New event'
+    : composer === 'announcement' ? 'New announcement'
+    : 'What would you like to post?'
+  function closeComposer() { setComposer(null); setEditingEvent(null); setEditingAnnouncement(null) }
+  function afterPost() { closeComposer(); fetchAll() }
+
   return (
     <div className="page">
       {lightboxSrc && <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
+
+      {modalOpen && (
+        <Modal title={modalTitle} onClose={closeComposer} width={composer === 'choose' ? 640 : 760}>
+          {composer === 'choose' && <NewPostChooser onSelect={setComposer} />}
+          {(composer === 'event' || editingEvent) && (
+            <EventForm groupId={id} userId={user.id} editEvent={editingEvent} onSuccess={afterPost} onCancel={closeComposer} />
+          )}
+          {(composer === 'announcement' || editingAnnouncement) && (
+            <AnnouncementForm groupId={id} userId={user.id} editAnnouncement={editingAnnouncement} onSuccess={afterPost} onCancel={closeComposer} />
+          )}
+        </Modal>
+      )}
 
       <div className="group-layout">
       <SidePanel side="left" open={navOpen} onToggle={() => setNavOpen(o => !o)} label="menu" width={200}>
@@ -382,30 +321,12 @@ export default function GroupDetail() {
         {/* Feed header + New post */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14, paddingBottom: 10, borderBottom: '1px solid var(--border)' }}>
           <h3 style={{ fontSize: '1rem' }}>Group Feed</h3>
-          {isAdmin && !composer && !editingEvent && (
+          {isAdmin && (
             <button className="btn btn-primary" style={{ width: 'auto', padding: '8px 18px', fontSize: 13 }} onClick={() => setComposer('choose')}>
               ＋ New post
             </button>
           )}
         </div>
-
-        {composer === 'choose' && (
-          <NewPostChooser onSelect={setComposer} onCancel={() => setComposer(null)} />
-        )}
-
-        {(composer === 'event' || editingEvent) && (
-          <PostEventForm groupId={id} userId={user.id} editEvent={editingEvent}
-            onSuccess={() => { setComposer(null); setEditingEvent(null); fetchAll() }}
-            onCancel={() => { setComposer(null); setEditingEvent(null) }}
-          />
-        )}
-
-        {composer === 'announcement' && (
-          <AnnouncementForm groupId={id} userId={user.id}
-            onSuccess={() => { setComposer(null); fetchAll() }}
-            onCancel={() => setComposer(null)}
-          />
-        )}
 
         {/* Feed */}
         {feed.length === 0 ? (
@@ -417,15 +338,16 @@ export default function GroupDetail() {
             <div key={`event-${item.id}`}>
               <div className="event-card" onClick={() => navigate(`/event/${item.id}`)}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <span className="event-category">{item.category}</span>
+                  <EventLabels event={item} />
                   <span style={{ fontSize: 12, color: 'var(--muted)' }}>
                     {formatDistanceToNow(new Date(item.created_at || item.event_date), { addSuffix: true })}
                   </span>
                 </div>
                 <h3 className="event-title">{item.title}</h3>
                 <div className="event-meta">
-                  <span>🗓 {format(new Date(item.event_date), 'EEE, MMM d · h:mm a')}</span>
-                  <span>📍 {item.location_name}</span>
+                  <span>🗓 {formatEventRange(item.event_date, item.event_end)}</span>
+                  <span>{item.location_type === 'online' ? '💻' : '📍'} {item.location_name}</span>
+                  <span>🎟 {describeJoinAccess(item).replace('This event is open', 'Open')}</span>
                 </div>
                 {item.description && <p className="event-desc">{item.description}</p>}
                 {isAdmin && (
@@ -472,6 +394,10 @@ export default function GroupDetail() {
               </div>
               {isAdmin && (
                 <div style={{ display: 'flex', gap: 8, marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+                  <button className="btn btn-ghost" style={{ padding: '5px 12px', fontSize: 12 }}
+                    onClick={() => { setEditingAnnouncement(item); setComposer(null) }}>
+                    ✏ Edit
+                  </button>
                   <button className="btn btn-ghost" style={{ padding: '5px 12px', fontSize: 12, color: '#e74c3c', borderColor: '#e74c3c' }}
                     onClick={() => handleDeleteAnnouncement(item.id)}>
                     🗑 Delete

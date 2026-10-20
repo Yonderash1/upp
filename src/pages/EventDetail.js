@@ -5,7 +5,11 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { format, formatDistanceToNow } from 'date-fns'
+import { formatDistanceToNow } from 'date-fns'
+import EventLabels from '../components/EventLabels'
+import Linkify from '../components/Linkify'
+import { formatEventRange } from '../lib/eventUtils'
+import { normalizeRole, getAttendState, getJoinStatus, describeJoinAccess } from '../lib/eventAccess'
 
 delete L.Icon.Default.prototype._getIconUrl
 L.Icon.Default.mergeOptions({
@@ -23,6 +27,8 @@ export default function EventDetail() {
   const [event, setEvent] = useState(null)
   const [attendees, setAttendees] = useState([])
   const [isAttending, setIsAttending] = useState(false)
+  const [myRole, setMyRole] = useState(null)      // this person's role in the event's group (null = not a member)
+  const [interests, setInterests] = useState([])   // user ids of people who tapped "I'm interested"
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const { user } = useAuth()
@@ -32,6 +38,25 @@ export default function EventDetail() {
     fetchEvent()
     fetchAttendees()
   }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Once the event is loaded, work out this person's role and who's interested
+  useEffect(() => {
+    if (!event) return
+    fetchMembership(event.group_id)
+    fetchInterests()
+  }, [event?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function fetchMembership(groupId) {
+    if (!groupId) { setMyRole(null); return }
+    const { data } = await supabase
+      .from('group_members').select('role').eq('group_id', groupId).eq('user_id', user.id).maybeSingle()
+    setMyRole(normalizeRole(data?.role))
+  }
+
+  async function fetchInterests() {
+    const { data } = await supabase.from('event_interests').select('user_id').eq('event_id', id)
+    setInterests((data || []).map(r => r.user_id))
+  }
 
   // Gives up after a while, so a stuck request shows an error instead of an endless spinner
   function withTimeout(promise, ms = 10000) {
@@ -47,7 +72,7 @@ export default function EventDetail() {
       const { data, error } = await withTimeout(
         supabase
           .from('events')
-          .select('*, profiles(username, id), groups(id, name)')
+          .select('*, profiles(username, id), groups(id, name), event_label_assignments(group_labels(id, name))')
           .eq('id', id)
           .maybeSingle()
       )
@@ -81,9 +106,23 @@ export default function EventDetail() {
     if (isAttending) {
       await supabase.from('attendees').delete().eq('event_id', id).eq('user_id', user.id)
     } else {
-      await supabase.from('attendees').insert({ event_id: id, user_id: user.id })
+      const { error } = await supabase.from('attendees').insert({ event_id: id, user_id: user.id })
+      if (error) { alert(error.message); fetchAttendees(); return }
+      // Confirmed now, so no longer just "interested"
+      await supabase.from('event_interests').delete().eq('event_id', id).eq('user_id', user.id)
+      fetchInterests()
     }
     fetchAttendees()
+  }
+
+  async function toggleInterest() {
+    if (interests.includes(user.id)) {
+      await supabase.from('event_interests').delete().eq('event_id', id).eq('user_id', user.id)
+    } else {
+      const { error } = await supabase.from('event_interests').insert({ event_id: id, user_id: user.id })
+      if (error) { alert(error.message); return }
+    }
+    fetchInterests()
   }
 
   if (loading) return <div className="loading-screen"><div className="spinner" /></div>
@@ -99,6 +138,12 @@ export default function EventDetail() {
     </div>
   )
   if (!event) return <div className="page"><div className="detail-page"><h2>Event not found</h2></div></div>
+
+  const attendState = getAttendState({ event, myRole, isAttending, attendeeCount: attendees.length })
+  const canShowInterest = !isAttending && getJoinStatus(event, myRole) === 'ok'
+  const interestedCount = interests.filter(uid => !attendees.some(a => a.user_id === uid)).length
+  const isInterested = !isAttending && interests.includes(user.id)
+  const isFull = event.max_attendees != null && attendees.length >= event.max_attendees
 
   return (
     <div className="page">
@@ -117,18 +162,22 @@ export default function EventDetail() {
         )}
 
         <div className="detail-header">
-          <span className="event-category">{event.category}</span>
+          <EventLabels event={event} />
           <h1>{event.title}</h1>
         </div>
 
         <div className="detail-meta">
           <div className="detail-meta-row">
             <CalIcon />
-            {format(new Date(event.event_date), 'EEEE, MMMM d yyyy · h:mm a')}
+            {formatEventRange(event.event_date, event.event_end, true)}
           </div>
           <div className="detail-meta-row">
             <PinIcon />
             {event.location_name}
+          </div>
+          <div className="detail-meta-row">
+            <span style={{ width: 18, textAlign: 'center', flexShrink: 0 }}>🎟️</span>
+            {describeJoinAccess(event)}
           </div>
           {event.groups && (
             <div className="detail-meta-row" style={{ cursor: 'pointer' }} onClick={() => navigate(`/groups/${event.groups.id}`)}>
@@ -141,10 +190,22 @@ export default function EventDetail() {
           </div>
         </div>
 
-        {event.description && <p className="detail-desc">{event.description}</p>}
+        {event.description && <p className="detail-desc"><Linkify text={event.description} /></p>}
+
+        {event.location_details && (
+          <div style={{ marginBottom: 24 }}>
+            <h3 className="section-title">{event.location_type === 'online' ? 'Online event details' : 'Location details'}</h3>
+            <p className="detail-desc" style={{ marginBottom: 0 }}><Linkify text={event.location_details} /></p>
+          </div>
+        )}
 
         <div className="attendees-section">
-          <h3 className="section-title">{attendees.length} {attendees.length === 1 ? 'person' : 'people'} going</h3>
+          <h3 className="section-title">
+            {event.max_attendees != null
+              ? `${attendees.length} / ${event.max_attendees} going`
+              : `${attendees.length} ${attendees.length === 1 ? 'person' : 'people'} going`}
+            {isFull && <span className="full-badge">Full</span>}
+          </h3>
           <div className="attendees-list">
             {attendees.map(a => (
               <div key={a.user_id} className="attendee-chip">
@@ -157,9 +218,18 @@ export default function EventDetail() {
           </div>
         </div>
 
-        <button className={`big-attend-btn ${isAttending ? 'attending' : ''}`} onClick={toggleAttend}>
-          {isAttending ? "✓ You're going — click to cancel" : "I'm going to this!"}
+        <p className="interest-count">
+          ⭐ {interestedCount} {interestedCount === 1 ? 'person' : 'people'} interested
+        </p>
+
+        <button className={`big-attend-btn ${isAttending ? 'attending' : ''}`} disabled={!attendState.canClick} onClick={toggleAttend}>
+          {isAttending ? "✓ You're going — click to cancel" : attendState.canClick ? "I'm going to this!" : attendState.label}
         </button>
+        {canShowInterest && (
+          <button className={`big-interest-btn ${isInterested ? 'interested' : ''}`} onClick={toggleInterest}>
+            {isInterested ? "★ You're interested — click to remove" : "☆ I'm interested"}
+          </button>
+        )}
       </div>
     </div>
   )
