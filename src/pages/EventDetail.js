@@ -26,6 +26,9 @@ export default function EventDetail() {
   const [event, setEvent] = useState(null)
   const [attendees, setAttendees] = useState([])
   const [isAttending, setIsAttending] = useState(false)
+  const [interested, setInterested] = useState([])
+  const [isInterested, setIsInterested] = useState(false)
+  const [membershipRole, setMembershipRole] = useState(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const { user } = useAuth()
@@ -34,7 +37,9 @@ export default function EventDetail() {
   useEffect(() => {
     fetchEvent()
     fetchAttendees()
-  }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
+    fetchInterest()
+    fetchMembership()
+  }, [id, user?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Gives up after a while, so a stuck request shows an error instead of an endless spinner
   function withTimeout(promise, ms = 10000) {
@@ -56,6 +61,10 @@ export default function EventDetail() {
       )
       if (error) throw error
       setEvent(data)
+      if (user?.id && data?.group_id) {
+        const { data: membership } = await supabase.from('group_members').select('role').eq('group_id', data.group_id).eq('user_id', user.id).maybeSingle()
+        setMembershipRole(membership?.role || null)
+      }
     } catch (err) {
       console.error('Failed to load event:', err)
       setLoadError(err.message || 'Something went wrong')
@@ -80,7 +89,31 @@ export default function EventDetail() {
     }
   }
 
+
+  async function fetchMembership() { /* Membership is loaded with the event. */ }
+
+  async function fetchInterest() {
+    try {
+      const { data, error } = await supabase.from('event_interests').select('user_id, profiles(username)').eq('event_id', id)
+      if (error) throw error
+      setInterested(data || [])
+      setIsInterested((data || []).some(a => a.user_id === user?.id))
+    } catch (err) { console.error('Failed to load event interest:', err) }
+  }
+
+  async function toggleInterest() {
+    if (!user) return
+    if (isInterested) await supabase.from('event_interests').delete().eq('event_id', id).eq('user_id', user.id)
+    else await supabase.from('event_interests').insert({ event_id: id, user_id: user.id })
+    fetchInterest()
+  }
+
   async function toggleAttend() {
+    const allowed = event.attendance_access === 'public' ||
+      (event.attendance_access === 'members' && !!membershipRole) ||
+      (['owner','admin'].includes(event.attendance_access) && membershipRole === event.attendance_access || event.attendance_access === 'owner_admin' && ['owner','creator','admin'].includes(membershipRole))
+    if (!isAttending && !allowed) return
+    if (!isAttending && event.max_attendees && attendees.length >= event.max_attendees) return
     if (isAttending) {
       await supabase.from('attendees').delete().eq('event_id', id).eq('user_id', user.id)
     } else {
@@ -101,6 +134,13 @@ export default function EventDetail() {
       </div>
     </div>
   )
+  if (event && event.visibility_access !== 'public' &&
+      !(event.visibility_access === 'members' && membershipRole) &&
+      !(event.visibility_access === 'owner_admin' && ['owner','creator','admin'].includes(membershipRole)) &&
+      !(event.visibility_access === 'owner' && membershipRole === 'owner') &&
+      !(event.visibility_access === 'admin' && membershipRole === 'admin')) {
+    return <div className="page"><div className="detail-page"><h2>This event isn't visible to your account</h2><button className="btn btn-ghost" onClick={() => navigate(-1)}>← Back</button></div></div>
+  }
   if (!event) return <div className="page"><div className="detail-page"><h2>Event not found</h2></div></div>
 
   return (
@@ -154,7 +194,7 @@ export default function EventDetail() {
         )}
 
         <div className="attendees-section">
-          <h3 className="section-title">{attendees.length} {attendees.length === 1 ? 'person' : 'people'} going</h3>
+          <h3 className="section-title">{attendees.length} {attendees.length === 1 ? 'person' : 'people'} going{event.max_attendees ? ` · limit ${event.max_attendees}` : ''}</h3>
           <div className="attendees-list">
             {attendees.map(a => (
               <div key={a.user_id} className="attendee-chip">
@@ -167,8 +207,19 @@ export default function EventDetail() {
           </div>
         </div>
 
-        <button className={`big-attend-btn ${isAttending ? 'attending' : ''}`} onClick={toggleAttend}>
-          {isAttending ? "✓ You're going — click to cancel" : "I'm going to this!"}
+        <p style={{ color: 'var(--muted)', margin: '18px 0 8px', fontSize: 13 }}>
+          {event.attendance_access === 'public' ? 'This event is open to the public.' : event.attendance_access === 'owner_admin' ? "This event is open for the roles 'Owner' & 'Admin'." : event.attendance_access === 'owner' ? "This event is open to the 'Owner' role." : event.attendance_access === 'admin' ? "This event is open to the 'Admin' role." : event.attendance_access === 'public' ? 'This event is open to the public.' : 'This event is open to all group members.'}
+        </p>
+        <button className="big-attend-btn" style={{ marginBottom: 10, background: isInterested ? 'var(--bg3)' : undefined }} onClick={toggleInterest}>
+          {isInterested ? '✓ Interested — click to remove' : "I'm interested"} · {interested.length}
+        </button>
+        <button className={`big-attend-btn ${isAttending ? 'attending' : ''}`}
+          disabled={!isAttending && ((event.max_attendees && attendees.length >= event.max_attendees) || !(event.attendance_access === 'public' || (event.attendance_access === 'members' && !!membershipRole) || (['owner','admin'].includes(event.attendance_access) && membershipRole === event.attendance_access || event.attendance_access === 'owner_admin' && ['owner','creator','admin'].includes(membershipRole))))}
+          onClick={toggleAttend}>
+          {isAttending ? "✓ You're going — click to cancel" :
+            event.max_attendees && attendees.length >= event.max_attendees ? 'Event is full' :
+            event.attendance_access !== 'public' && !membershipRole ? 'Unavailable to non-members' :
+            (['owner','admin'].includes(event.attendance_access) && membershipRole !== event.attendance_access) || event.attendance_access === 'owner_admin' && !['owner','creator','admin'].includes(membershipRole) ? 'Unavailable to your group role' : "I'm going to this!"}
         </button>
       </div>
     </div>

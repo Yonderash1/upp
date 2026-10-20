@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet'
+import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { addYears, format } from 'date-fns'
@@ -28,6 +28,11 @@ function LocationPicker({ onSelect }) {
   useMapEvents({ click(e) { onSelect(e.latlng) } })
   return null
 }
+function MapResize({ expanded }) {
+  const map = useMap()
+  useEffect(() => { const timer = setTimeout(() => map.invalidateSize(), 120); return () => clearTimeout(timer) }, [expanded, map])
+  return null
+}
 
 const dateStr = d => format(d, 'yyyy-MM-dd')
 const timeStr = d => format(d, 'HH:mm')
@@ -53,6 +58,11 @@ export default function EventForm({ groupId, userId, editEvent, onSuccess, onCan
   const [labels, setLabels] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [mapExpanded, setMapExpanded] = useState(false)
+  const [showPermissions, setShowPermissions] = useState(false)
+  const [maxAttendees, setMaxAttendees] = useState(editEvent?.max_attendees ?? '')
+  const [attendanceAccess, setAttendanceAccess] = useState(editEvent?.attendance_access || 'members')
+  const [visibilityAccess, setVisibilityAccess] = useState(editEvent?.visibility_access || 'members')
 
   // When editing, load the event's existing labels
   useEffect(() => {
@@ -107,6 +117,9 @@ export default function EventForm({ groupId, userId, editEvent, onSuccess, onCan
       lat: locationType === 'physical' ? latlng.lat : null,
       lng: locationType === 'physical' ? latlng.lng : null,
       group_id: groupId,
+      max_attendees: maxAttendees === '' ? null : Math.max(1, Number(maxAttendees)),
+      attendance_access: attendanceAccess,
+      visibility_access: visibilityAccess,
     }
 
     let eventId = editEvent?.id
@@ -221,16 +234,31 @@ export default function EventForm({ groupId, userId, editEvent, onSuccess, onCan
           <div className="field">
             <label>Pin on the map</label>
             <div className="location-picker">
-              <MapContainer
-                center={latlng ? [latlng.lat, latlng.lng] : [54.5, -3]}
-                zoom={latlng ? 13 : 5} style={{ height: 240 }} scrollWheelZoom={false}
-              >
-                <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                <LocationPicker onSelect={setLatlng} />
-                {latlng && <Marker position={latlng} />}
-              </MapContainer>
+              <div className={mapExpanded ? 'event-map-expanded' : ''}>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                  <button className="btn btn-ghost" type="button" onClick={() => setMapExpanded(v => !v)}>{mapExpanded ? 'Exit expanded map' : 'Expand map'}</button>
+                  <button className="btn btn-ghost" type="button" onClick={() => { setLatlng(null); setLocationName('') }}>Reset pin & location</button>
+                </div>
+                <MapContainer
+                  center={latlng ? [latlng.lat, latlng.lng] : [54.5, -3]}
+                  zoom={latlng ? 13 : 5} style={{ height: mapExpanded ? 'calc(100vh - 150px)' : 280, width: '100%' }} scrollWheelZoom={true}
+                >
+                  <MapResize expanded={mapExpanded} />
+                  <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                  <LocationPicker onSelect={async point => {
+                    setLatlng(point)
+                    try {
+                      const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${point.lat}&lon=${point.lng}`)
+                      const result = await response.json()
+                      const address = result.name || result.display_name?.split(',').slice(0, 3).join(',')
+                      if (address) setLocationName(address)
+                    } catch (_) { /* coordinates still work if reverse geocoding is unavailable */ }
+                  }} />
+                  {latlng && <Marker position={latlng} />}
+                </MapContainer>
+              </div>
               <div className="location-hint">
-                {latlng ? `📍 ${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}` : 'Click the map to drop a pin'}
+                {latlng ? `📍 ${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)} — location name can be edited above` : 'Click the map to drop a pin'}
               </div>
             </div>
           </div>
@@ -265,6 +293,35 @@ export default function EventForm({ groupId, userId, editEvent, onSuccess, onCan
           </div>
         </>
       )}
+
+      <div style={{ margin: '24px 0', padding: 16, border: '1px solid var(--border)', borderRadius: 12 }}>
+        <button type="button" className="btn btn-ghost" onClick={() => setShowPermissions(v => !v)} style={{ width: '100%', textAlign: 'left' }}>
+          {showPermissions ? '▾' : '▸'} Event permissions
+        </button>
+        {showPermissions && <div style={{ marginTop: 16 }}>
+          <div className="field">
+            <label>Maximum attendee count (optional)</label>
+            <input type="number" min="1" step="1" value={maxAttendees} onChange={e => setMaxAttendees(e.target.value)} placeholder="No limit" />
+            <div className="field-hint">Once full, new attendance confirmations should be blocked.</div>
+          </div>
+          <div className="field">
+            <label>Who can confirm attendance?</label>
+            <select value={attendanceAccess} onChange={e => setAttendanceAccess(e.target.value)}>
+              <option value="owner">Owners only</option><option value="admin">Admins only</option>
+              <option value="members">All group members</option>
+              <option value="public">Anyone, including non-members</option>
+            </select>
+          </div>
+          <div className="field">
+            <label>Who can see this event?</label>
+            <select value={visibilityAccess} onChange={e => setVisibilityAccess(e.target.value)}>
+              <option value="owner">Owners only</option><option value="admin">Admins only</option>
+              <option value="members">All group members</option>
+              <option value="public">Anyone, including non-members</option>
+            </select>
+          </div>
+        </div>}
+      </div>
 
       <h4 className="form-section-title">Labels</h4>
       <div className="field">
