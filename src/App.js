@@ -14,7 +14,9 @@ import Groups from './pages/Groups'
 import CreateGroup from './pages/CreateGroup'
 import GroupDetail from './pages/GroupDetail'
 import GroupSettings from './pages/GroupSettings'
+import Notifications from './pages/Notifications'
 import Navbar from './components/Navbar'
+import { NotificationsProvider } from './contexts/NotificationsContext'
 import './App.css'
 
 function ProtectedRoute({ children }) {
@@ -52,6 +54,7 @@ function AppRoutes() {
         <Route path="/map" element={<ProtectedRoute><MapPage /></ProtectedRoute>} />
         <Route path="/event/:id" element={<ProtectedRoute><EventDetail /></ProtectedRoute>} />
         <Route path="/profile/:id" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+        <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
         <Route path="/people" element={<ProtectedRoute><People /></ProtectedRoute>} />
         <Route path="/groups" element={<ProtectedRoute><Groups /></ProtectedRoute>} />
         <Route path="/groups/create" element={<ProtectedRoute><CreateGroup /></ProtectedRoute>} />
@@ -66,7 +69,9 @@ export default function App() {
   return (
     <AuthProvider>
       <Router>
-        <AppRoutes />
+        <NotificationsProvider>
+          <AppRoutes />
+        </NotificationsProvider>
       </Router>
     </AuthProvider>
   )
