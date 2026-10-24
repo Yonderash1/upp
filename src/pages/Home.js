@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import EventLabels from '../components/EventLabels'
-import { formatEventRange } from '../lib/eventUtils'
+import { formatEventRange, getComingUp, rankFeedEvents } from '../lib/eventUtils'
 import { normalizeRole, getAttendState } from '../lib/eventAccess'
 
 const CalIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
@@ -19,9 +19,7 @@ export default function Home() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    fetchEvents()
-    fetchAttending()
-    fetchRoles()
+    Promise.all([fetchEvents(), fetchAttending(), fetchRoles()]).then(() => setLoading(false))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function fetchEvents() {
@@ -31,7 +29,6 @@ export default function Home() {
       .order('event_date', { ascending: true })
       .gte('event_date', new Date().toISOString())
     setEvents(data || [])
-    setLoading(false)
     fetchCounts((data || []).map(e => e.id))
   }
 
@@ -72,76 +69,91 @@ export default function Home() {
 
   if (loading) return <div className="loading-screen"><div className="spinner" /></div>
 
+  // The soonest events I'm going to (max 3, within 2 weeks) sit at the top of the feed
+  const comingUp = getComingUp(events, attending)
+  const comingUpIds = new Set(comingUp.map(e => e.id))
+  // Everything else, in the order the app thinks is most relevant (see rankFeedEvents)
+  const feed = rankFeedEvents(events.filter(e => !comingUpIds.has(e.id)))
+
+  function renderCard(event) {
+    return (
+    <div key={event.id} className="event-card" onClick={() => navigate(`/event/${event.id}`)}>
+      <EventLabels event={event} />
+      <h3 className="event-title">{event.title}</h3>
+      <div className="event-meta">
+        <span><CalIcon /> {formatEventRange(event.event_date, event.event_end)}</span>
+        <span><PinIcon /> {event.location_name}</span>
+      </div>
+      {event.description && <p className="event-desc">{event.description}</p>}
+      <div className="event-footer">
+        <div className="event-host">
+          {event.groups ? (
+            <>
+              <div style={{ width: 26, height: 26, borderRadius: 6, background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, fontFamily: 'Syne, sans-serif' }}>
+                {event.groups.name[0].toUpperCase()}
+              </div>
+              <span
+                style={{ color: 'var(--accent)', fontWeight: 600, cursor: 'pointer' }}
+                onClick={e => { e.stopPropagation(); navigate(`/groups/${event.groups.id}`) }}
+              >
+                {event.groups.name}
+              </span>
+            </>
+          ) : (
+            <>
+              <div className="avatar-sm" style={{ width: 26, height: 26, fontSize: 11 }}>
+                {event.profiles?.username?.[0]?.toUpperCase() || '?'}
+              </div>
+              {event.profiles?.username || 'Unknown'}
+            </>
+          )}
+        </div>
+        {(() => {
+          const state = getAttendState({
+            event, myRole: roles[event.group_id] || null,
+            isAttending: attending.has(event.id), attendeeCount: counts[event.id] || 0
+          })
+          return (
+            <button
+              className={`attend-btn ${attending.has(event.id) ? 'attending' : ''}`}
+              disabled={!state.canClick}
+              onClick={e => toggleAttend(e, event.id)}
+            >
+              {attending.has(event.id) ? '✓ Going' : state.canClick ? "I'm going" : state.label}
+            </button>
+          )
+        })()}
+      </div>
+    </div>
+    )
+  }
+
   return (
     <div className="page">
       <div className="home-page">
         <div className="feed-header">
-          <div>
-            <h1>What's Upp 👋</h1>
-            <p style={{ color: 'var(--muted)', fontSize: '14px', marginTop: '4px' }}>Events happening near you</p>
-          </div>
-          <Link to="/create" className="btn btn-primary" style={{ width: 'auto' }}>+ Post Event</Link>
+          <h1>What's Upp 👋</h1>
         </div>
 
-        {events.length === 0 ? (
+        {comingUp.length === 0 && feed.length === 0 ? (
           <div className="empty-state">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ width: 48, height: 48, marginBottom: 16, opacity: 0.4 }}>
               <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
             </svg>
             <h3>No events yet</h3>
-            <p>Be the first to post something happening near you</p>
+            <p>Join a group to start seeing events here</p>
+            <Link to="/groups" className="btn btn-primary" style={{ width: 'auto', marginTop: 16 }}>Find groups</Link>
           </div>
         ) : (
-          events.map(event => (
-            <div key={event.id} className="event-card" onClick={() => navigate(`/event/${event.id}`)}>
-              <EventLabels event={event} />
-              <h3 className="event-title">{event.title}</h3>
-              <div className="event-meta">
-                <span><CalIcon /> {formatEventRange(event.event_date, event.event_end)}</span>
-                <span><PinIcon /> {event.location_name}</span>
-              </div>
-              {event.description && <p className="event-desc">{event.description}</p>}
-              <div className="event-footer">
-                <div className="event-host">
-                  {event.groups ? (
-                    <>
-                      <div style={{ width: 26, height: 26, borderRadius: 6, background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, fontFamily: 'Syne, sans-serif' }}>
-                        {event.groups.name[0].toUpperCase()}
-                      </div>
-                      <span
-                        style={{ color: 'var(--accent)', fontWeight: 600, cursor: 'pointer' }}
-                        onClick={e => { e.stopPropagation(); navigate(`/groups/${event.groups.id}`) }}
-                      >
-                        {event.groups.name}
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <div className="avatar-sm" style={{ width: 26, height: 26, fontSize: 11 }}>
-                        {event.profiles?.username?.[0]?.toUpperCase() || '?'}
-                      </div>
-                      {event.profiles?.username || 'Unknown'}
-                    </>
-                  )}
-                </div>
-                {(() => {
-                  const state = getAttendState({
-                    event, myRole: roles[event.group_id] || null,
-                    isAttending: attending.has(event.id), attendeeCount: counts[event.id] || 0
-                  })
-                  return (
-                    <button
-                      className={`attend-btn ${attending.has(event.id) ? 'attending' : ''}`}
-                      disabled={!state.canClick}
-                      onClick={e => toggleAttend(e, event.id)}
-                    >
-                      {attending.has(event.id) ? '✓ Going' : state.canClick ? "I'm going" : state.label}
-                    </button>
-                  )
-                })()}
-              </div>
-            </div>
-          ))
+          <>
+            {comingUp.length > 0 && (
+              <section className="feed-section">
+                <h2 className="feed-section-title">Coming up...</h2>
+                {comingUp.map(renderCard)}
+              </section>
+            )}
+            {feed.map(renderCard)}
+          </>
         )}
       </div>
     </div>
