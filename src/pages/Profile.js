@@ -260,7 +260,12 @@ export default function Profile() {
               <button className="btn btn-ghost" style={{ fontSize: 13 }} onClick={startEdit}>✏ Edit Profile</button>
               <button className="btn btn-ghost" style={{ fontSize: 14 }} onClick={async () => { await signOut(); navigate('/login') }}>Sign Out</button>
             </>
-          ) : renderConnectionAction()}
+          ) : (
+            <>
+              {renderConnectionAction()}
+              <button className="btn btn-ghost" style={{ fontSize: 13 }} onClick={() => navigate(`/messages/${id}`)}>✉ Message</button>
+            </>
+          )}
         </div>
 
         {/* Tabs */}

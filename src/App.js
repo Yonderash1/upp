@@ -15,8 +15,10 @@ import CreateGroup from './pages/CreateGroup'
 import GroupDetail from './pages/GroupDetail'
 import GroupSettings from './pages/GroupSettings'
 import Notifications from './pages/Notifications'
+import Messages from './pages/Messages'
 import Navbar from './components/Navbar'
 import { NotificationsProvider } from './contexts/NotificationsContext'
+import { MessagesProvider } from './contexts/MessagesContext'
 import './App.css'
 
 function ProtectedRoute({ children }) {
@@ -55,6 +57,8 @@ function AppRoutes() {
         <Route path="/event/:id" element={<ProtectedRoute><EventDetail /></ProtectedRoute>} />
         <Route path="/profile/:id" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
         <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
+        <Route path="/messages" element={<ProtectedRoute><Messages /></ProtectedRoute>} />
+        <Route path="/messages/:otherId" element={<ProtectedRoute><Messages /></ProtectedRoute>} />
         <Route path="/people" element={<ProtectedRoute><People /></ProtectedRoute>} />
         <Route path="/groups" element={<ProtectedRoute><Groups /></ProtectedRoute>} />
         <Route path="/groups/create" element={<ProtectedRoute><CreateGroup /></ProtectedRoute>} />
@@ -70,7 +74,9 @@ export default function App() {
     <AuthProvider>
       <Router>
         <NotificationsProvider>
-          <AppRoutes />
+          <MessagesProvider>
+            <AppRoutes />
+          </MessagesProvider>
         </NotificationsProvider>
       </Router>
     </AuthProvider>
