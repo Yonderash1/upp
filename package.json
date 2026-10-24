@@ -10,7 +10,8 @@
     "@supabase/supabase-js": "^2.39.0",
     "leaflet": "^1.9.4",
     "react-leaflet": "^4.2.1",
-    "date-fns": "^3.3.1"
+    "date-fns": "^3.3.1",
+    "leaflet.heat": "^0.2.0"
   },
   "scripts": {
     "start": "react-scripts start",
@@ -19,10 +20,20 @@
     "eject": "react-scripts eject"
   },
   "eslintConfig": {
-    "extends": ["react-app"]
+    "extends": [
+      "react-app"
+    ]
   },
   "browserslist": {
-    "production": [">0.2%", "not dead", "not op_mini all"],
-    "development": ["last 1 chrome version", "last 1 firefox version", "last 1 safari version"]
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
   }
 }

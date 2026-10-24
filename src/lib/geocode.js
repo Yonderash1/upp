@@ -30,3 +30,22 @@ export async function reverseGeocode(lat, lng) {
     clearTimeout(timer)
   }
 }
+
+// Turns a typed address / place into coordinates (used by the map's radius filter).
+export async function searchAddress(query) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 8000)
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5`
+    const res = await fetch(url, { signal: controller.signal, headers: { Accept: 'application/json' } })
+    if (!res.ok) throw new Error('Address lookup failed')
+    const data = await res.json()
+    return data.map(r => ({
+      label: (r.display_name || '').split(',').slice(0, 3).join(',').trim(),
+      lat: parseFloat(r.lat),
+      lng: parseFloat(r.lon),
+    }))
+  } finally {
+    clearTimeout(timer)
+  }
+}
