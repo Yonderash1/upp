@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDistanceToNow } from 'date-fns'
@@ -12,7 +12,7 @@ import Modal from '../components/Modal'
 import EventForm from '../components/EventForm'
 import EventLabels from '../components/EventLabels'
 import { formatEventRange } from '../lib/eventUtils'
-import { describeJoinAccess } from '../lib/eventAccess'
+import { describeJoinAccess, getAttendState, getJoinStatus, normalizeRole } from '../lib/eventAccess'
 
 const joinModeLabel = { open: 'Open', request: 'Request to join', invite: 'Invite only' }
 const roleLabel = { owner: '👑 Owner', admin: '⚡ Admin', member: 'Member' }
@@ -116,6 +116,11 @@ export default function GroupDetail() {
   const [membersOpen, setMembersOpen] = useState(() => window.innerWidth > 900)
   const [navOpen, setNavOpen] = useState(() => window.innerWidth > 900)
   const [view, setView] = useState('feed')
+  const [attendingIds, setAttendingIds] = useState(new Set())   // events here that I'm going to
+  const [interestIds, setInterestIds] = useState(new Set())     // events here that I'm interested in
+  const [attendCounts, setAttendCounts] = useState({})          // event id -> number going
+  const [searchParams] = useSearchParams()
+  const highlightId = searchParams.get('event')                 // set when arriving from the Planner
   const { user } = useAuth()
   const navigate = useNavigate()
 
@@ -124,6 +129,13 @@ export default function GroupDetail() {
   const isMember = !!myMembership
 
   useEffect(() => { fetchAll() }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Arrived from the Planner: scroll to the event that was clicked
+  useEffect(() => {
+    if (loading || !highlightId) return
+    const el = document.getElementById(`event-${highlightId}`)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [loading, highlightId, events.length])
 
   async function fetchAll() {
     const [groupRes, membersRes, eventsRes, announcementsRes, myRes, memberData, requestRes, myRequestRes, labelData] = await Promise.all([
@@ -140,6 +152,7 @@ export default function GroupDetail() {
     setGroup(groupRes.data)
     setMembers(membersRes.data || [])
     setEvents(eventsRes.data || [])
+    fetchEventStatus(eventsRes.data || [])
     setAnnouncements(announcementsRes.data || [])
     setMyMembership(myRes.data)
     setMemberCount((memberData.data || []).length)
@@ -147,6 +160,51 @@ export default function GroupDetail() {
     setHasRequested(!!myRequestRes.data)
     setLabels((labelData.data || []).map(l => l.group_labels).filter(Boolean))
     setLoading(false)
+  }
+
+  // Who's going to this group's events, and what I've said about them
+  async function fetchEventStatus(list) {
+    const ids = list.map(e => e.id)
+    if (ids.length === 0) {
+      setAttendingIds(new Set()); setInterestIds(new Set()); setAttendCounts({})
+      return
+    }
+    const [att, int] = await Promise.all([
+      supabase.from('attendees').select('event_id, user_id').in('event_id', ids),
+      supabase.from('event_interests').select('event_id').eq('user_id', user.id).in('event_id', ids)
+    ])
+    const counts = {}
+    const mine = new Set()
+    ;(att.data || []).forEach(r => {
+      counts[r.event_id] = (counts[r.event_id] || 0) + 1
+      if (r.user_id === user.id) mine.add(r.event_id)
+    })
+    setAttendCounts(counts)
+    setAttendingIds(mine)
+    setInterestIds(new Set((int.data || []).map(r => r.event_id)))
+  }
+
+  async function toggleAttend(e, eventId) {
+    e.stopPropagation()
+    if (attendingIds.has(eventId)) {
+      await supabase.from('attendees').delete().eq('event_id', eventId).eq('user_id', user.id)
+    } else {
+      const { error } = await supabase.from('attendees').insert({ event_id: eventId, user_id: user.id })
+      if (error) { alert(error.message); fetchEventStatus(events); return }
+      await supabase.from('event_interests').delete().eq('event_id', eventId).eq('user_id', user.id)
+    }
+    fetchEventStatus(events)
+  }
+
+  async function toggleInterest(e, eventId) {
+    e.stopPropagation()
+    if (interestIds.has(eventId)) {
+      await supabase.from('event_interests').delete().eq('event_id', eventId).eq('user_id', user.id)
+    } else {
+      const { error } = await supabase.from('event_interests').insert({ event_id: eventId, user_id: user.id })
+      if (error) { alert(error.message); return }
+    }
+    fetchEventStatus(events)
   }
 
   async function handleJoin() {
@@ -336,7 +394,11 @@ export default function GroupDetail() {
         ) : (
           feed.map(item => item._type === 'event' ? (
             <div key={`event-${item.id}`}>
-              <div className="event-card" onClick={() => navigate(`/event/${item.id}`)}>
+              <div
+                id={`event-${item.id}`}
+                className={`event-card ${String(item.id) === highlightId ? 'event-highlight' : ''}`}
+                onClick={() => navigate(`/event/${item.id}`)}
+              >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <EventLabels event={item} />
                   <span style={{ fontSize: 12, color: 'var(--muted)' }}>
@@ -350,6 +412,36 @@ export default function GroupDetail() {
                   <span>🎟 {describeJoinAccess(item).replace('This event is open', 'Open')}</span>
                 </div>
                 {item.description && <p className="event-desc">{item.description}</p>}
+                {(() => {
+                  const myRole = normalizeRole(myMembership?.role)
+                  const going = attendingIds.has(item.id)
+                  const interested = interestIds.has(item.id)
+                  const count = attendCounts[item.id] || 0
+                  const state = getAttendState({ event: item, myRole, isAttending: going, attendeeCount: count })
+                  const canInterest = !going && getJoinStatus(item, myRole) === 'ok'
+                  return (
+                    <div className="group-event-actions" onClick={e => e.stopPropagation()}>
+                      <button
+                        className={`attend-btn ${going ? 'attending' : ''}`}
+                        disabled={!state.canClick}
+                        onClick={e => toggleAttend(e, item.id)}
+                      >
+                        {going ? '✓ Going' : state.canClick ? "I'm going" : state.label}
+                      </button>
+                      {canInterest && (
+                        <button
+                          className={`interest-btn ${interested ? 'interested' : ''}`}
+                          onClick={e => toggleInterest(e, item.id)}
+                        >
+                          {interested ? '★ Interested' : '☆ Interested'}
+                        </button>
+                      )}
+                      <span className="group-event-count">
+                        {item.max_attendees != null ? `${count} / ${item.max_attendees} going` : `${count} going`}
+                      </span>
+                    </div>
+                  )
+                })()}
                 {isAdmin && (
                   <div style={{ display: 'flex', gap: 8, marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}
                     onClick={e => e.stopPropagation()}>
