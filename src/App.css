@@ -484,8 +484,14 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .map-toast {
   position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
   z-index: 1000; background: rgba(10,10,15,0.95); border: 1.5px solid var(--border);
-  border-radius: 10px; padding: 10px 14px; font-size: 13px;
+  border-radius: 10px; padding: 10px 10px 10px 14px; font-size: 13px;
+  display: flex; align-items: center; gap: 10px; max-width: calc(100% - 32px);
 }
+.map-toast button {
+  background: none; border: none; color: var(--muted); font-size: 20px;
+  line-height: 1; cursor: pointer; padding: 0 4px;
+}
+.map-toast button:hover { color: var(--accent); }
 
 .map-panel-toggle {
   position: absolute; top: 16px; right: 16px; z-index: 1000;

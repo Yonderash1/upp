@@ -86,13 +86,23 @@ function MapControls({ onLocate, locating }) {
 }
 
 // Moves the map when `target` changes: { center: [lat,lng], zoom } or { bounds }
-function MapMover({ target }) {
+function MapMover({ target, markerRefs }) {
   const map = useMap()
   useEffect(() => {
     if (!target) return
-    if (target.bounds) map.flyToBounds(target.bounds, { padding: [40, 40], duration: 0.8 })
-    else map.flyTo(target.center, target.zoom, { duration: 0.8 })
-  }, [target, map])
+    let timer
+    if (target.bounds) {
+      map.flyToBounds(target.bounds, { padding: [40, 40], duration: 0.8 })
+    } else {
+      const zoom = target.minZoom ? Math.max(map.getZoom(), target.minZoom) : target.zoom
+      map.flyTo(target.center, zoom, { duration: 0.8 })
+    }
+    // After the map has arrived, open the event's popup (same as clicking its dot)
+    if (target.openId) {
+      timer = setTimeout(() => markerRefs.current[target.openId]?.openPopup(), 900)
+    }
+    return () => clearTimeout(timer)
+  }, [target, map]) // eslint-disable-line react-hooks/exhaustive-deps
   return null
 }
 
@@ -165,6 +175,7 @@ export default function MapPage() {
   const [devicePos, setDevicePos] = useState(null)
   const [locating, setLocating] = useState(false)
   const [mapTarget, setMapTarget] = useState(null)
+  const markerRefs = useRef({})   // event id -> Leaflet marker, so the list can open popups
   const [panelOpen, setPanelOpen] = useState(() => window.innerWidth > 768)
 
   // ── Filter state ──
@@ -241,13 +252,19 @@ export default function MapPage() {
         const p = [pos.coords.latitude, pos.coords.longitude]
         setDevicePos(p)
         setLocating(false)
+        setDeviceError('')
         if (move) setMapTarget({ center: p, zoom: 14, t: Date.now() })
       },
-      () => {
+      err => {
         setLocating(false)
-        setDeviceError('Could not get your location — check your browser permissions')
+        setDeviceError(
+          err.code === 1
+            ? 'Location is blocked — allow location access for this site in your browser settings'
+            : 'Could not find your location right now — please try again'
+        )
       },
-      { enableHighAccuracy: true, timeout: 10000 }
+      // Network-based location is much quicker than waiting for a GPS fix
+      { enableHighAccuracy: false, timeout: 15000, maximumAge: 5 * 60 * 1000 }
     )
   }
 
@@ -279,7 +296,12 @@ export default function MapPage() {
   // Move the map to show the circle whenever the origin / size changes
   useEffect(() => {
     if (!radiusActive) return
-    const bounds = L.circle(radiusOrigin, { radius: radiusKm * 1000 }).getBounds()
+    const latDelta = radiusKm / 111.32
+    const lngDelta = radiusKm / (111.32 * Math.max(0.01, Math.cos((radiusOrigin[0] * Math.PI) / 180)))
+    const bounds = L.latLngBounds(
+      [radiusOrigin[0] - latDelta, radiusOrigin[1] - lngDelta],
+      [radiusOrigin[0] + latDelta, radiusOrigin[1] + lngDelta]
+    )
     setMapTarget({ bounds, t: Date.now() })
   }, [radiusActive, radiusOrigin?.[0], radiusOrigin?.[1], radiusKm]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -344,7 +366,7 @@ export default function MapPage() {
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
-          <MapMover target={mapTarget} />
+          <MapMover target={mapTarget} markerRefs={markerRefs} />
           <HeatLayer events={filtered} />
 
           {radiusActive && (
@@ -364,7 +386,12 @@ export default function MapPage() {
           )}
 
           {filtered.map(event => (
-            <Marker key={event.id} position={[event.lat, event.lng]} icon={dotIcon}>
+            <Marker
+              key={event.id}
+              position={[event.lat, event.lng]}
+              icon={dotIcon}
+              ref={m => { if (m) markerRefs.current[event.id] = m; else delete markerRefs.current[event.id] }}
+            >
               <Popup>
                 <div style={{ fontFamily: 'DM Sans, sans-serif', minWidth: 180 }}>
                   <strong style={{ fontSize: 14 }}>{event.title}</strong>
@@ -392,7 +419,12 @@ export default function MapPage() {
           <MapControls onLocate={() => locateDevice({ move: true })} locating={locating} />
         </MapContainer>
 
-        {deviceError && <div className="map-toast">{deviceError}</div>}
+        {deviceError && (
+          <div className="map-toast">
+            <span>{deviceError}</span>
+            <button type="button" aria-label="Close" onClick={() => setDeviceError('')}>×</button>
+          </div>
+        )}
 
         <button type="button" className="map-panel-toggle" onClick={() => setPanelOpen(o => !o)}>
           {panelOpen ? 'Hide search' : `Search${filtersOn ? ' •' : ''}`}
@@ -501,7 +533,10 @@ export default function MapPage() {
               <div
                 key={event.id}
                 className="map-event-pill"
-                onClick={() => navigate(`/event/${event.id}`)}
+                onClick={() => {
+                  setMapTarget({ center: [event.lat, event.lng], minZoom: 15, openId: event.id, t: Date.now() })
+                  if (window.innerWidth <= 768) setPanelOpen(false) // reveal the map on phones
+                }}
               >
                 <h4>{event.title}</h4>
                 <p>{format(new Date(event.event_date), 'EEE MMM d · h:mm a')} · {event.location_name}</p>
