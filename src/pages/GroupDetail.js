@@ -11,11 +11,13 @@ import NewPostChooser from '../components/NewPostChooser'
 import Modal from '../components/Modal'
 import EventForm from '../components/EventForm'
 import EventLabels from '../components/EventLabels'
+import GroupChannel from '../components/GroupChannel'
+import ChannelForm from '../components/ChannelForm'
 import { formatEventRange } from '../lib/eventUtils'
-import { describeJoinAccess, getAttendState, getJoinStatus, normalizeRole } from '../lib/eventAccess'
+import { describeJoinAccess, getAttendState, getJoinStatus, EVENT_ROLE_SELECT } from '../lib/eventAccess'
+import { hasPerm, channelAccess } from '../lib/permissions'
 
 const joinModeLabel = { open: 'Open', request: 'Request to join', invite: 'Invite only' }
-const roleLabel = { owner: '👑 Owner', admin: '⚡ Admin', member: 'Member' }
 
 // ── Lightbox ─────────────────────────────────────────────────
 function Lightbox({ src, onClose }) {
@@ -113,6 +115,9 @@ export default function GroupDetail() {
   const [editingAnnouncement, setEditingAnnouncement] = useState(null)
   const [lightboxSrc, setLightboxSrc] = useState(null)
   const [labels, setLabels] = useState([])
+  const [roles, setRoles] = useState([])
+  const [channels, setChannels] = useState([])
+  const [channelForm, setChannelForm] = useState(null)   // null | { channel: null | row }  (create / edit a channel)
   const [membersOpen, setMembersOpen] = useState(() => window.innerWidth > 900)
   const [navOpen, setNavOpen] = useState(() => window.innerWidth > 900)
   const [view, setView] = useState('feed')
@@ -124,9 +129,12 @@ export default function GroupDetail() {
   const { user } = useAuth()
   const navigate = useNavigate()
 
-  const isOwner = myMembership?.role === 'owner'
-  const isAdmin = ['owner', 'admin'].includes(myMembership?.role)
+  // Who am I in this group, and what am I allowed to do?
+  const rolesById = Object.fromEntries(roles.map(r => [r.id, r]))
+  const myRole = myMembership ? rolesById[myMembership.role_id] || null : null
+  const isOwner = !!myRole?.is_owner
   const isMember = !!myMembership
+  const can = key => hasPerm(myRole, key)
 
   useEffect(() => { fetchAll() }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -138,16 +146,18 @@ export default function GroupDetail() {
   }, [loading, highlightId, events.length])
 
   async function fetchAll() {
-    const [groupRes, membersRes, eventsRes, announcementsRes, myRes, memberData, requestRes, myRequestRes, labelData] = await Promise.all([
+    const [groupRes, membersRes, eventsRes, announcementsRes, myRes, memberData, requestRes, myRequestRes, labelData, rolesRes, channelsRes] = await Promise.all([
       supabase.from('groups').select('*').eq('id', id).single(),
       supabase.from('group_members').select('*, profiles(id, username, avatar_url)').eq('group_id', id).order('joined_at', { ascending: true }),
-      supabase.from('events').select('*, profiles(username), event_label_assignments(group_labels(id, name))').eq('group_id', id).order('event_date', { ascending: true }).gte('event_date', new Date().toISOString()),
+      supabase.from('events').select(`*, profiles(username), event_label_assignments(group_labels(id, name)), ${EVENT_ROLE_SELECT}`).eq('group_id', id).order('event_date', { ascending: true }).gte('event_date', new Date().toISOString()),
       supabase.from('announcements').select('*, profiles(username)').eq('group_id', id).order('created_at', { ascending: false }),
-      supabase.from('group_members').select('role').eq('group_id', id).eq('user_id', user.id).maybeSingle(),
+      supabase.from('group_members').select('role_id').eq('group_id', id).eq('user_id', user.id).maybeSingle(),
       supabase.from('group_members').select('user_id').eq('group_id', id),
       supabase.from('group_join_requests').select('*, profiles(username)').eq('group_id', id),
       supabase.from('group_join_requests').select('id').eq('group_id', id).eq('user_id', user.id).maybeSingle(),
-      supabase.from('group_label_assignments').select('label_id, group_labels(id, name)').eq('group_id', id)
+      supabase.from('group_label_assignments').select('label_id, group_labels(id, name)').eq('group_id', id),
+      supabase.from('group_roles').select('*').eq('group_id', id).order('rank', { ascending: true }),
+      supabase.from('group_channels').select('*').eq('group_id', id).order('created_at', { ascending: true })
     ])
     setGroup(groupRes.data)
     setMembers(membersRes.data || [])
@@ -159,6 +169,8 @@ export default function GroupDetail() {
     setPendingRequests(requestRes.data || [])
     setHasRequested(!!myRequestRes.data)
     setLabels((labelData.data || []).map(l => l.group_labels).filter(Boolean))
+    setRoles(rolesRes.data || [])
+    setChannels(channelsRes.data || [])
     setLoading(false)
   }
 
@@ -210,7 +222,9 @@ export default function GroupDetail() {
   async function handleJoin() {
     setJoining(true)
     if (group.join_mode === 'open') {
-      await supabase.from('group_members').insert({ group_id: id, user_id: user.id, role: 'member' })
+      const base = roles.find(r => r.is_default)
+      const { error } = await supabase.from('group_members').insert({ group_id: id, user_id: user.id, role_id: base?.id })
+      if (error) alert(error.message)
     } else if (group.join_mode === 'request') {
       await supabase.from('group_join_requests').insert({ group_id: id, user_id: user.id })
       setHasRequested(true)
@@ -237,8 +251,8 @@ export default function GroupDetail() {
   }
 
   async function approveRequest(reqUserId) {
-    await supabase.from('group_join_requests').delete().eq('group_id', id).eq('user_id', reqUserId)
-    await supabase.from('group_members').insert({ group_id: id, user_id: reqUserId, role: 'member' })
+    const { error } = await supabase.rpc('approve_join_request', { p_group: id, p_user: reqUserId })
+    if (error) alert(error.message)
     fetchAll()
   }
 
@@ -247,20 +261,30 @@ export default function GroupDetail() {
     fetchAll()
   }
 
-  async function changeRole(memberId, newRole) {
-    await supabase.from('group_members').update({ role: newRole }).eq('group_id', id).eq('user_id', memberId)
+  async function changeRole(memberId, roleId) {
+    const { error } = await supabase.rpc('set_member_role', { p_group: id, p_user: memberId, p_role: roleId })
+    if (error) alert(error.message)
     fetchAll()
   }
 
-  async function removeMember(memberId) {
-    await supabase.from('group_members').delete().eq('group_id', id).eq('user_id', memberId)
+  async function kickMember(memberId) {
+    const { error } = await supabase.rpc('kick_group_member', { p_group: id, p_user: memberId })
+    if (error) alert(error.message)
     fetchAll()
   }
 
   if (loading) return <div className="loading-screen"><div className="spinner" /></div>
   if (!group) return <div className="page"><div className="detail-page"><h2>Group not found</h2></div></div>
 
-  const canSeeMembers = isAdmin || group.members_visible
+  const canSeeMembers = group.members_visible || can('kick_members') || can('manage_roles') || can('manage_group')
+
+  // user id -> role, for name colours in chat and the "can I moderate them?" check
+  const memberRoles = {}
+  members.forEach(m => { if (rolesById[m.role_id]) memberRoles[m.user_id] = rolesById[m.role_id] })
+
+  const activeChannel = view !== 'feed' ? channels.find(c => c.id === view) : null
+  const canPost = can('create_events') || can('create_announcements')
+  const allowedPosts = [can('create_events') && 'event', can('create_announcements') && 'announcement'].filter(Boolean)
 
   const feed = [
     ...events.map(e => ({ ...e, _type: 'event' })),
@@ -286,7 +310,7 @@ export default function GroupDetail() {
 
       {modalOpen && (
         <Modal title={modalTitle} onClose={closeComposer} width={composer === 'choose' ? 640 : 760}>
-          {composer === 'choose' && <NewPostChooser onSelect={setComposer} />}
+          {composer === 'choose' && <NewPostChooser onSelect={setComposer} allowed={allowedPosts} />}
           {(composer === 'event' || editingEvent) && (
             <EventForm groupId={id} userId={user.id} editEvent={editingEvent} onSuccess={afterPost} onCancel={closeComposer} />
           )}
@@ -296,9 +320,25 @@ export default function GroupDetail() {
         </Modal>
       )}
 
+      {channelForm && (
+        <ChannelForm
+          groupId={id} userId={user.id} roles={roles}
+          channel={channelForm.channel} canDelete={can('delete_channels')}
+          onSaved={() => { setChannelForm(null); fetchAll() }}
+          onDeleted={() => { if (channelForm.channel?.id === view) setView('feed'); setChannelForm(null); fetchAll() }}
+          onClose={() => setChannelForm(null)}
+        />
+      )}
+
       <div className="group-layout">
-      <SidePanel side="left" open={navOpen} onToggle={() => setNavOpen(o => !o)} label="menu" width={200}>
-        <GroupNav active={view} onSelect={setView} />
+      <SidePanel side="left" open={navOpen} onToggle={() => setNavOpen(o => !o)} label="menu" width={220}>
+        <GroupNav
+          active={activeChannel ? view : 'feed'} onSelect={setView}
+          channels={channels}
+          canCreateChannel={can('create_channels')} canEditChannel={can('edit_channels') || can('delete_channels')}
+          onCreateChannel={() => setChannelForm({ channel: null })}
+          onEditChannel={c => setChannelForm({ channel: c })}
+        />
       </SidePanel>
 
       <main className="group-main">
@@ -314,12 +354,17 @@ export default function GroupDetail() {
             <div style={{ display: 'flex', gap: 14, color: 'var(--muted)', fontSize: 13, flexWrap: 'wrap' }}>
               <span>{memberCount} member{memberCount !== 1 ? 's' : ''}</span>
               <span>{joinModeLabel[group.join_mode]}</span>
-              {myMembership && <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{roleLabel[myMembership.role]}</span>}
+              {myRole && <span style={{ color: myRole.color, fontWeight: 600 }}>{myRole.is_owner ? '👑 ' : ''}{myRole.name}</span>}
             </div>
           </div>
-          {isAdmin && (
-            <Link to={`/groups/${id}/settings`} className="btn btn-ghost" style={{ padding: '7px 14px', fontSize: 13 }}>⚙ Settings</Link>
-          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {can('manage_roles') && (
+              <Link to={`/groups/${id}/roles`} className="btn btn-ghost" style={{ padding: '7px 14px', fontSize: 13 }}>🛡 Roles</Link>
+            )}
+            {can('manage_group') && (
+              <Link to={`/groups/${id}/settings`} className="btn btn-ghost" style={{ padding: '7px 14px', fontSize: 13 }}>⚙ Settings</Link>
+            )}
+          </div>
         </div>
 
         {group.description && <p style={{ color: 'var(--muted)', lineHeight: 1.7, marginBottom: labels.length > 0 ? 12 : 24 }}>{group.description}</p>}
@@ -340,7 +385,7 @@ export default function GroupDetail() {
           </div>
         )}
 
-        {/* Join / Leave (owners manage the group from Settings) */}
+        {/* Join / Leave (the owner manages the group from Settings) */}
         {!isOwner && <div style={{ display: 'flex', gap: 10, marginBottom: 28, flexWrap: 'wrap' }}>
           {!isMember && group.join_mode !== 'invite' && (
             <button className="btn btn-primary" onClick={handleJoin} disabled={joining || hasRequested}>
@@ -358,7 +403,7 @@ export default function GroupDetail() {
         </div>}
 
         {/* Pending join requests */}
-        {isAdmin && pendingRequests.length > 0 && (
+        {can('manage_join_requests') && pendingRequests.length > 0 && (
           <div style={{ marginBottom: 28 }}>
             <h3 className="section-title">Join Requests <span style={{ color: 'var(--accent)' }}>{pendingRequests.length}</span></h3>
             {pendingRequests.map(req => (
@@ -376,10 +421,18 @@ export default function GroupDetail() {
           </div>
         )}
 
+        {activeChannel ? (
+          <GroupChannel
+            key={activeChannel.id}
+            channel={activeChannel} userId={user.id} myRole={myRole}
+            access={channelAccess(activeChannel, myRole, rolesById)}
+            memberRoles={memberRoles}
+          />
+        ) : (<>
         {/* Feed header + New post */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14, paddingBottom: 10, borderBottom: '1px solid var(--border)' }}>
           <h3 style={{ fontSize: '1rem' }}>Group Feed</h3>
-          {isAdmin && (
+          {canPost && (
             <button className="btn btn-primary" style={{ width: 'auto', padding: '8px 18px', fontSize: 13 }} onClick={() => setComposer('choose')}>
               ＋ New post
             </button>
@@ -389,7 +442,7 @@ export default function GroupDetail() {
         {/* Feed */}
         {feed.length === 0 ? (
           <p style={{ color: 'var(--muted)', fontSize: 14, marginBottom: 28 }}>
-            {isAdmin ? 'No posts yet — hit "New post" to get started!' : 'Nothing posted yet'}
+            {canPost ? 'No posts yet — hit "New post" to get started!' : 'Nothing posted yet'}
           </p>
         ) : (
           feed.map(item => item._type === 'event' ? (
@@ -413,12 +466,12 @@ export default function GroupDetail() {
                 </div>
                 {item.description && <p className="event-desc">{item.description}</p>}
                 {(() => {
-                  const myRole = normalizeRole(myMembership?.role)
+                  const myRank = myRole ? myRole.rank : null
                   const going = attendingIds.has(item.id)
                   const interested = interestIds.has(item.id)
                   const count = attendCounts[item.id] || 0
-                  const state = getAttendState({ event: item, myRole, isAttending: going, attendeeCount: count })
-                  const canInterest = !going && getJoinStatus(item, myRole) === 'ok'
+                  const state = getAttendState({ event: item, myRank, isAttending: going, attendeeCount: count })
+                  const canInterest = !going && getJoinStatus(item, myRank) === 'ok'
                   return (
                     <div className="group-event-actions" onClick={e => e.stopPropagation()}>
                       <button
@@ -442,17 +495,21 @@ export default function GroupDetail() {
                     </div>
                   )
                 })()}
-                {isAdmin && (
+                {(can('edit_events') || can('delete_events')) && (
                   <div style={{ display: 'flex', gap: 8, marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}
                     onClick={e => e.stopPropagation()}>
-                    <button className="btn btn-ghost" style={{ padding: '5px 12px', fontSize: 12 }}
-                      onClick={() => { setEditingEvent(item); setComposer(null) }}>
-                      ✏ Edit
-                    </button>
-                    <button className="btn btn-ghost" style={{ padding: '5px 12px', fontSize: 12, color: '#e74c3c', borderColor: '#e74c3c' }}
-                      onClick={() => handleDeleteEvent(item.id)}>
-                      🗑 Delete
-                    </button>
+                    {can('edit_events') && (
+                      <button className="btn btn-ghost" style={{ padding: '5px 12px', fontSize: 12 }}
+                        onClick={() => { setEditingEvent(item); setComposer(null) }}>
+                        ✏ Edit
+                      </button>
+                    )}
+                    {can('delete_events') && (
+                      <button className="btn btn-ghost" style={{ padding: '5px 12px', fontSize: 12, color: '#e74c3c', borderColor: '#e74c3c' }}
+                        onClick={() => handleDeleteEvent(item.id)}>
+                        🗑 Delete
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -484,31 +541,37 @@ export default function GroupDetail() {
               <div style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)' }}>
                 Posted by @{item.profiles?.username}
               </div>
-              {isAdmin && (
+              {(can('edit_announcements') || can('delete_announcements')) && (
                 <div style={{ display: 'flex', gap: 8, marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
-                  <button className="btn btn-ghost" style={{ padding: '5px 12px', fontSize: 12 }}
-                    onClick={() => { setEditingAnnouncement(item); setComposer(null) }}>
-                    ✏ Edit
-                  </button>
-                  <button className="btn btn-ghost" style={{ padding: '5px 12px', fontSize: 12, color: '#e74c3c', borderColor: '#e74c3c' }}
-                    onClick={() => handleDeleteAnnouncement(item.id)}>
-                    🗑 Delete
-                  </button>
+                  {can('edit_announcements') && (
+                    <button className="btn btn-ghost" style={{ padding: '5px 12px', fontSize: 12 }}
+                      onClick={() => { setEditingAnnouncement(item); setComposer(null) }}>
+                      ✏ Edit
+                    </button>
+                  )}
+                  {can('delete_announcements') && (
+                    <button className="btn btn-ghost" style={{ padding: '5px 12px', fontSize: 12, color: '#e74c3c', borderColor: '#e74c3c' }}
+                      onClick={() => handleDeleteAnnouncement(item.id)}>
+                      🗑 Delete
+                    </button>
+                  )}
                 </div>
               )}
             </div>
           ))
         )}
+        </>)}
       </main>
 
       <MembersPanel
         members={members}
+        roles={roles}
+        myRole={myRole}
         memberCount={memberCount}
         canSeeMembers={canSeeMembers}
-        isOwner={isOwner}
         currentUserId={user.id}
         onChangeRole={changeRole}
-        onRemove={removeMember}
+        onKick={kickMember}
         open={membersOpen}
         onToggle={() => setMembersOpen(o => !o)}
       />

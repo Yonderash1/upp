@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import EventLabels from '../components/EventLabels'
 import { formatEventRange, getComingUp, rankFeedEvents } from '../lib/eventUtils'
-import { normalizeRole, getAttendState } from '../lib/eventAccess'
+import { getAttendState, EVENT_ROLE_SELECT } from '../lib/eventAccess'
 
 const CalIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
 const PinIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
@@ -25,7 +25,7 @@ export default function Home() {
   async function fetchEvents() {
     const { data } = await supabase
       .from('events')
-      .select('*, profiles(username), groups(id, name), event_label_assignments(group_labels(id, name))')
+      .select(`*, profiles(username), groups(id, name), event_label_assignments(group_labels(id, name)), ${EVENT_ROLE_SELECT}`)
       .order('event_date', { ascending: true })
       .gte('event_date', new Date().toISOString())
     setEvents(data || [])
@@ -33,9 +33,9 @@ export default function Home() {
   }
 
   async function fetchRoles() {
-    const { data } = await supabase.from('group_members').select('group_id, role').eq('user_id', user.id)
-    const map = {}
-    ;(data || []).forEach(r => { map[r.group_id] = normalizeRole(r.role) })
+    const { data } = await supabase.from('group_members').select('group_id, group_roles(rank)').eq('user_id', user.id)
+    const map = {}   // group id -> my role's rank (0 = owner)
+    ;(data || []).forEach(r => { map[r.group_id] = r.group_roles?.rank ?? null })
     setRoles(map)
   }
 
@@ -110,7 +110,7 @@ export default function Home() {
         </div>
         {(() => {
           const state = getAttendState({
-            event, myRole: roles[event.group_id] || null,
+            event, myRank: roles[event.group_id] ?? null,
             isAttending: attending.has(event.id), attendeeCount: counts[event.id] || 0
           })
           return (

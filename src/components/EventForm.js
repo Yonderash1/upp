@@ -5,7 +5,7 @@ import LabelPicker from './LabelPicker'
 import LocationMapPicker from './LocationMapPicker'
 import EventPermissions from './EventPermissions'
 import { reverseGeocode } from '../lib/geocode'
-import { audienceFromArray, audienceToArray, audienceShort } from '../lib/eventAccess'
+import { audienceFromEvent, audienceToStored, audienceShort } from '../lib/eventAccess'
 
 const MAX_LABELS = 5
 const TBC_NAME = 'Location to be confirmed'
@@ -43,9 +43,10 @@ export default function EventForm({ groupId, userId, editEvent, onSuccess, onCan
   const [perm, setPerm] = useState(() => ({
     maxMode: editEvent?.max_attendees ? 'limit' : 'none',
     maxAttendees: editEvent?.max_attendees ? String(editEvent.max_attendees) : '',
-    join: audienceFromArray(editEvent?.join_access),
-    visibility: audienceFromArray(editEvent?.visibility_access),
+    join: audienceFromEvent(editEvent?.join_access, editEvent?.join_min_role),
+    visibility: audienceFromEvent(editEvent?.visibility_access, editEvent?.visibility_min_role),
   }))
+  const [groupRoles, setGroupRoles] = useState([])
   const [showPerms, setShowPerms] = useState(false)
   const [lookingUp, setLookingUp] = useState(false)
   const [lookupFailed, setLookupFailed] = useState(false)
@@ -66,6 +67,13 @@ export default function EventForm({ groupId, userId, editEvent, onSuccess, onCan
       .eq('event_id', editEvent.id)
       .then(({ data }) => setLabels((data || []).map(r => r.group_labels).filter(Boolean)))
   }, [editEvent?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The group's roles, for the "open to / visible to" role pickers
+  useEffect(() => {
+    if (!groupId) return
+    supabase.from('group_roles').select('*').eq('group_id', groupId).order('rank', { ascending: true })
+      .then(({ data }) => setGroupRoles(data || []))
+  }, [groupId])
 
   function updatePerm(partial) { setPerm(p => ({ ...p, ...partial })) }
 
@@ -137,9 +145,9 @@ export default function EventForm({ groupId, userId, editEvent, onSuccess, onCan
         setError('Event permissions: enter a maximum attendee number between 1 and 100,000'); return
       }
     }
-    if ((perm.join.mode === 'roles' && perm.join.roles.length === 0) ||
-        (perm.visibility.mode === 'roles' && perm.visibility.roles.length === 0)) {
-      setError('Event permissions: choose at least one role'); return
+    if ((perm.join.mode === 'role' && !perm.join.roleId) ||
+        (perm.visibility.mode === 'role' && !perm.visibility.roleId)) {
+      setError('Event permissions: choose a role'); return
     }
 
     setLoading(true)
@@ -150,6 +158,8 @@ export default function EventForm({ groupId, userId, editEvent, onSuccess, onCan
         setLoading(false); return
       }
     }
+    const joinStored = audienceToStored(perm.join)
+    const visStored = audienceToStored(perm.visibility)
     const hasPlaceName = locationType === 'physical' || locationType === 'other'
     const payload = {
       title: title.trim(),
@@ -163,8 +173,10 @@ export default function EventForm({ groupId, userId, editEvent, onSuccess, onCan
       lng: locationType === 'physical' ? latlng.lng : null,
       group_id: groupId,
       max_attendees: maxAttendees,
-      join_access: audienceToArray(perm.join),
-      visibility_access: audienceToArray(perm.visibility),
+      join_access: joinStored.access,
+      join_min_role: joinStored.minRole,
+      visibility_access: visStored.access,
+      visibility_min_role: visStored.minRole,
     }
 
     let eventId = editEvent?.id
@@ -337,8 +349,8 @@ export default function EventForm({ groupId, userId, editEvent, onSuccess, onCan
         </button>
         <span className="permissions-summary">
           {perm.maxMode === 'limit' && perm.maxAttendees ? `Max ${perm.maxAttendees} attendees` : 'No attendee limit'}
-          {' · '}Open to: {audienceShort(perm.join)}
-          {' · '}Visible to: {audienceShort(perm.visibility)}
+          {' · '}Open to: {audienceShort(perm.join, groupRoles)}
+          {' · '}Visible to: {audienceShort(perm.visibility, groupRoles)}
         </span>
       </div>
 
@@ -352,7 +364,7 @@ export default function EventForm({ groupId, userId, editEvent, onSuccess, onCan
     </form>
 
     {/* Outside the <form> so pressing Enter in the permissions box can't post the event */}
-    {showPerms && <EventPermissions value={perm} onChange={updatePerm} onClose={() => setShowPerms(false)} />}
+    {showPerms && <EventPermissions value={perm} onChange={updatePerm} onClose={() => setShowPerms(false)} roles={groupRoles} />}
     </>
   )
 }

@@ -9,7 +9,7 @@ import { formatDistanceToNow } from 'date-fns'
 import EventLabels from '../components/EventLabels'
 import Linkify from '../components/Linkify'
 import { formatEventRange } from '../lib/eventUtils'
-import { normalizeRole, getAttendState, getJoinStatus, describeJoinAccess } from '../lib/eventAccess'
+import { getAttendState, getJoinStatus, describeJoinAccess, EVENT_ROLE_SELECT } from '../lib/eventAccess'
 
 delete L.Icon.Default.prototype._getIconUrl
 L.Icon.Default.mergeOptions({
@@ -27,7 +27,7 @@ export default function EventDetail() {
   const [event, setEvent] = useState(null)
   const [attendees, setAttendees] = useState([])
   const [isAttending, setIsAttending] = useState(false)
-  const [myRole, setMyRole] = useState(null)      // this person's role in the event's group (null = not a member)
+  const [myRank, setMyRank] = useState(null)      // rank of this person's role in the event's group (0 = owner, null = not a member)
   const [interests, setInterests] = useState([])   // user ids of people who tapped "I'm interested"
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
@@ -47,10 +47,10 @@ export default function EventDetail() {
   }, [event?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function fetchMembership(groupId) {
-    if (!groupId) { setMyRole(null); return }
+    if (!groupId) { setMyRank(null); return }
     const { data } = await supabase
-      .from('group_members').select('role').eq('group_id', groupId).eq('user_id', user.id).maybeSingle()
-    setMyRole(normalizeRole(data?.role))
+      .from('group_members').select('group_roles(rank)').eq('group_id', groupId).eq('user_id', user.id).maybeSingle()
+    setMyRank(data?.group_roles?.rank ?? null)
   }
 
   async function fetchInterests() {
@@ -72,7 +72,7 @@ export default function EventDetail() {
       const { data, error } = await withTimeout(
         supabase
           .from('events')
-          .select('*, profiles(username, id), groups(id, name), event_label_assignments(group_labels(id, name))')
+          .select(`*, profiles(username, id), groups(id, name), event_label_assignments(group_labels(id, name)), ${EVENT_ROLE_SELECT}`)
           .eq('id', id)
           .maybeSingle()
       )
@@ -139,8 +139,8 @@ export default function EventDetail() {
   )
   if (!event) return <div className="page"><div className="detail-page"><h2>Event not found</h2></div></div>
 
-  const attendState = getAttendState({ event, myRole, isAttending, attendeeCount: attendees.length })
-  const canShowInterest = !isAttending && getJoinStatus(event, myRole) === 'ok'
+  const attendState = getAttendState({ event, myRank, isAttending, attendeeCount: attendees.length })
+  const canShowInterest = !isAttending && getJoinStatus(event, myRank) === 'ok'
   const interestedCount = interests.filter(uid => !attendees.some(a => a.user_id === uid)).length
   const isInterested = !isAttending && interests.includes(user.id)
   const isFull = event.max_attendees != null && attendees.length >= event.max_attendees

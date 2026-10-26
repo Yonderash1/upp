@@ -5,8 +5,6 @@ import { useAuth } from '../contexts/AuthContext'
 import AvatarCropper from '../components/AvatarCropper'
 import LabelPicker from '../components/LabelPicker'
 
-const roleLabel = { owner: '👑 Owner', admin: '⚡ Admin', member: 'Member' }
-const roleColor = { owner: '#f39c12', admin: '#9b59b6', member: 'var(--muted)' }
 const GENDERS = ['Man', 'Woman', 'Non-binary', 'Prefer not to say']
 const TABS = ['About', 'Groups', 'Connections']
 
@@ -47,7 +45,7 @@ export default function Profile() {
     const [profileRes, interestsRes, membershipsRes, connectionsRes, myConnRes] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', id).single(),
       supabase.from('profile_label_assignments').select('label_id, group_labels(id, name)').eq('user_id', id),
-      supabase.from('group_members').select('role, groups(id, name, description)').eq('user_id', id).order('joined_at', { ascending: true }),
+      supabase.from('group_members').select('group_roles(name, color, is_owner), groups(id, name, description)').eq('user_id', id).order('joined_at', { ascending: true }),
       supabase.from('connections').select('*, from_profile:from_user(id, username, avatar_url), to_profile:to_user(id, username, avatar_url)')
         .or(`from_user.eq.${id},to_user.eq.${id}`).eq('status', 'accepted'),
       !isOwnProfile
@@ -420,8 +418,8 @@ export default function Profile() {
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: '1rem', marginBottom: 4 }}>{m.groups?.name}</div>
-                  <span style={{ display: 'inline-block', fontSize: 12, fontWeight: 700, padding: '2px 10px', borderRadius: 20, background: `${roleColor[m.role]}22`, color: roleColor[m.role], border: `1px solid ${roleColor[m.role]}44` }}>
-                    {roleLabel[m.role]}
+                  <span style={{ display: 'inline-block', fontSize: 12, fontWeight: 700, padding: '2px 10px', borderRadius: 20, background: `${m.group_roles?.color || '#99aab5'}22`, color: m.group_roles?.color || '#99aab5', border: `1px solid ${m.group_roles?.color || '#99aab5'}44` }}>
+                    {m.group_roles?.is_owner ? '👑 ' : ''}{m.group_roles?.name || 'Member'}
                   </span>
                 </div>
               </div>

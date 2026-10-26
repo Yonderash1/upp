@@ -5,10 +5,11 @@ const OPTIONS = [
   { key: 'media', icon: '🖼️', title: 'Media', desc: 'Photos and videos from group events', comingSoon: true }
 ]
 
-export default function NewPostChooser({ onSelect }) {
+export default function NewPostChooser({ onSelect, allowed }) {
+  const options = OPTIONS.filter(o => o.comingSoon || !allowed || allowed.includes(o.key))
   return (
     <div className="post-type-grid">
-      {OPTIONS.map(o => (
+      {options.map(o => (
         <button
           key={o.key}
           type="button"

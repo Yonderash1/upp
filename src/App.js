@@ -15,6 +15,7 @@ import Groups from './pages/Groups'
 import CreateGroup from './pages/CreateGroup'
 import GroupDetail from './pages/GroupDetail'
 import GroupSettings from './pages/GroupSettings'
+import GroupRoles from './pages/GroupRoles'
 import Notifications from './pages/Notifications'
 import Messages from './pages/Messages'
 import Navbar from './components/Navbar'
@@ -66,6 +67,7 @@ function AppRoutes() {
         <Route path="/groups/create" element={<ProtectedRoute><CreateGroup /></ProtectedRoute>} />
         <Route path="/groups/:id" element={<ProtectedRoute><GroupDetail /></ProtectedRoute>} />
         <Route path="/groups/:id/settings" element={<ProtectedRoute><GroupSettings /></ProtectedRoute>} />
+        <Route path="/groups/:id/roles" element={<ProtectedRoute><GroupRoles /></ProtectedRoute>} />
       </Routes>
     </>
   )

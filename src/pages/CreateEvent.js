@@ -18,10 +18,11 @@ export default function CreateEvent() {
   async function fetchAdminGroups() {
     const { data } = await supabase
       .from('group_members')
-      .select('group_id, role, groups(id, name)')
+      .select('group_id, group_roles(is_owner, permissions), groups(id, name)')
       .eq('user_id', user.id)
-      .in('role', ['creator', 'owner', 'admin'])
-    const groups = (data || []).map(m => m.groups).filter(Boolean)
+    const groups = (data || [])
+      .filter(m => m.group_roles && (m.group_roles.is_owner || (m.group_roles.permissions || []).includes('create_events')))
+      .map(m => m.groups).filter(Boolean)
     setAdminGroups(groups)
     if (groups.length === 1) setSelectedGroup(groups[0].id)
     setLoadingGroups(false)
@@ -36,7 +37,7 @@ export default function CreateEvent() {
           <h1>Post an Event</h1>
           <div style={{ marginTop: 32, padding: '28px 24px', background: 'var(--card)', border: '1.5px solid var(--border)', borderRadius: 14, textAlign: 'center' }}>
             <div style={{ fontSize: 40, marginBottom: 16 }}>🔒</div>
-            <h3 style={{ marginBottom: 10 }}>You need to be a group admin to post events</h3>
+            <h3 style={{ marginBottom: 10 }}>You need permission to post events in a group</h3>
             <p style={{ color: 'var(--muted)', fontSize: 14, lineHeight: 1.7, marginBottom: 24 }}>
               Events on Upp are posted by groups. Create your own group and you'll automatically become its creator, letting you post events straight away.
             </p>

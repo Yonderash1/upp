@@ -26,6 +26,7 @@ export default function GroupSettings() {
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
   const [isOwner, setIsOwner] = useState(false)
+  const [canManageRoles, setCanManageRoles] = useState(false)
   const [cropSrc, setCropSrc] = useState(null)
   const [uploadingImage, setUploadingImage] = useState(false)
   const fileInputRef = useRef(null)
@@ -41,10 +42,11 @@ export default function GroupSettings() {
     if (!data) { navigate('/groups'); return }
 
     const { data: membership } = await supabase
-      .from('group_members').select('role')
+      .from('group_members').select('group_roles(is_owner, permissions)')
       .eq('group_id', id).eq('user_id', user.id).maybeSingle()
 
-    if (!membership || !['owner', 'admin'].includes(membership.role)) {
+    const myRole = membership?.group_roles
+    if (!myRole || !(myRole.is_owner || (myRole.permissions || []).includes('manage_group'))) {
       navigate(`/groups/${id}`); return
     }
 
@@ -56,7 +58,8 @@ export default function GroupSettings() {
 
     const labels = (labelData || []).map(l => l.group_labels).filter(Boolean)
 
-    setIsOwner(membership.role === 'owner')
+    setIsOwner(!!myRole.is_owner)
+    setCanManageRoles(!!(myRole.is_owner || (myRole.permissions || []).includes('manage_roles')))
     setGroup(data)
     setName(data.name)
     setDescription(data.description || '')
@@ -146,6 +149,14 @@ export default function GroupSettings() {
         <h1>Group Settings</h1>
         <p className="subtitle">{group.name}</p>
 
+        {canManageRoles && (
+          <div className="role-notice" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <span>🛡 Create roles, set their colours and choose what each role can do.</span>
+            <button type="button" className="btn btn-ghost" style={{ width: 'auto', padding: '7px 14px', fontSize: 13 }}
+              onClick={() => navigate(`/groups/${id}/roles`)}>Manage roles →</button>
+          </div>
+        )}
+
         {error && <div className="error-msg">{error}</div>}
         {saved && (
           <div style={{ background: 'rgba(46,204,113,0.12)', border: '1px solid rgba(46,204,113,0.3)', color: 'var(--success)', padding: '12px 16px', borderRadius: 10, marginBottom: 18, fontSize: 14 }}>
@@ -211,7 +222,7 @@ export default function GroupSettings() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
               {[
                 { value: true, label: 'Visible to all members', desc: 'Everyone in the group can see the full member list' },
-                { value: false, label: 'Admins only', desc: 'Only owners and admins can see the full member list' }
+                { value: false, label: 'Admins only', desc: 'Only members with management permissions can see the full member list' }
               ].map(opt => (
                 <div key={String(opt.value)} onClick={() => setMembersVisible(opt.value)} style={{
                   padding: '12px 14px', borderRadius: 10, cursor: 'pointer', transition: 'all 0.2s',

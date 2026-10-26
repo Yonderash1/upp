@@ -97,3 +97,10 @@ git push
 ## Getting help
 
 If anything goes wrong, just copy the error message and ask Claude — paste exactly what you see and Claude will fix it.
+
+---
+
+## Group roles & channels (added later)
+
+Run `supabase-roles-channels.sql` once in the Supabase SQL Editor **before** deploying this version.
+It converts existing groups (Owner / Admin / Member roles are created for you) and adds channels.
