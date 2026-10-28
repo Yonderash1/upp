@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { useNotifications } from '../contexts/NotificationsContext'
 import GroupAvatar from '../components/GroupAvatar'
+import ConfirmDialog from '../components/ConfirmDialog'
 import { formatEventRange } from '../lib/eventUtils'
 
 function UserAvatar({ profile, size = 44 }) {
@@ -30,6 +31,8 @@ export default function Notifications() {
   const [error, setError] = useState('')
   const [showSettings, setShowSettings] = useState(false)
   const [groupPosts, setGroupPosts] = useState(true)
+  const [pendingRequests, setPendingRequests] = useState(() => new Set())   // people whose message request is waiting
+  const [blockTarget, setBlockTarget] = useState(null)                       // notification being blocked
 
   const load = useCallback(async () => {
     const { data, error: err } = await supabase
@@ -48,6 +51,12 @@ export default function Notifications() {
       const { data: conns } = await supabase
         .from('connections').select('id, from_user, status').eq('to_user', user.id).in('from_user', requesterIds)
       ;(conns || []).forEach(c => { states[c.from_user] = { id: c.id, status: c.status } })
+    }
+
+    // Message requests: which ones are still waiting? (the waiting messages themselves stay hidden)
+    if (list.some(n => n.type === 'message_request')) {
+      const { data: waiting } = await supabase.rpc('my_pending_message_requests')
+      setPendingRequests(new Set(waiting || []))
     }
 
     // Anything unread right now is "new" — it stays highlighted for this visit, then counts as old
@@ -98,7 +107,23 @@ export default function Notifications() {
     setItems(list => list.filter(i => i.id !== n.id))
   }
 
+  // Accept: the message becomes visible, then straight into that conversation
+  async function acceptMessageRequest(n) {
+    const { error: err } = await supabase.rpc('accept_message_request', { p_sender: n.actor_id })
+    if (err) { alert(err.message); return }
+    setPendingRequests(set => { const next = new Set(set); next.delete(n.actor_id); return next })
+    navigate(`/messages/${n.actor_id}`)
+  }
+
+  // Block (the "are you sure?" pop-up calls this): they go to Blocked users in your profile
+  async function blockFromRequest(n) {
+    const { error: err } = await supabase.rpc('block_user', { p_user: n.actor_id })
+    if (err) return err.message
+    setItems(list => list.filter(i => i.id !== n.id))
+  }
+
   function openNotification(n) {
+    if (n.type === 'message_request' && n.actor_id && !pendingRequests.has(n.actor_id)) navigate(`/messages/${n.actor_id}`)
     if (n.type === 'group_event' && n.event_id) navigate(`/event/${n.event_id}`)
     else if (n.type === 'group_announcement' && n.group_id) navigate(`/groups/${n.group_id}`)
     else if (n.type === 'event_changed' && n.event_id) navigate(`/event/${n.event_id}`)
@@ -153,6 +178,20 @@ export default function Notifications() {
           {n.group_name && <div className="notif-sub">Hosted by {n.group_name}</div>}
         </>
       )
+    } else if (n.type === 'message_request') {
+      avatar = <UserAvatar profile={n.actor} />
+      headline = <><strong>@{n.actor?.username || 'Someone'}</strong> wants to send you a message</>
+      if (pendingRequests.has(n.actor_id)) {
+        detail = <div className="notif-sub">Message request · you can’t read it until you accept</div>
+        actions = (
+          <div className="notif-actions" onClick={e => e.stopPropagation()}>
+            <button className="attend-btn" onClick={() => acceptMessageRequest(n)}>Accept &amp; view</button>
+            <button className="btn btn-ghost" style={{ fontSize: 13, padding: '6px 14px' }} onClick={() => setBlockTarget(n)}>Block</button>
+          </div>
+        )
+      } else {
+        detail = <div className="notif-sub" style={{ color: 'var(--success)' }}>✓ Request accepted — tap to open the chat</div>
+      }
     } else {
       const state = connStates[n.actor_id]
       avatar = <UserAvatar profile={n.actor} />
@@ -212,7 +251,7 @@ export default function Notifications() {
                 className={`switch ${groupPosts ? 'on' : ''}`} onClick={toggleGroupPosts}
               ><span /></button>
             </div>
-            <div className="field-hint" style={{ margin: '12px 0 0' }}>Connection requests, changes to events you're going to, and deleted groups or events always appear here.</div>
+            <div className="field-hint" style={{ margin: '12px 0 0' }}>Connection requests, message requests, changes to events you're going to, and deleted groups or events always appear here.</div>
           </div>
         )}
 
@@ -221,7 +260,7 @@ export default function Notifications() {
         {visible.length === 0 && !error ? (
           <div className="empty-state">
             <h3>You're all caught up</h3>
-            <p>New events and announcements from your groups, changes to events you're going to, and connection requests will show up here.</p>
+            <p>New events and announcements from your groups, changes to events you're going to, connection requests and message requests will show up here.</p>
           </div>
         ) : (
           <>
@@ -240,6 +279,18 @@ export default function Notifications() {
           </>
         )}
       </div>
+
+      {blockTarget && (
+        <ConfirmDialog
+          title={`Block @${blockTarget.actor?.username || 'this user'}?`}
+          confirmLabel="Block"
+          danger
+          onConfirm={() => blockFromRequest(blockTarget)}
+          onCancel={() => setBlockTarget(null)}
+        >
+          Are you sure? They won’t be able to message you or send you connection requests. You’ll find them under Blocked users in your profile, where you can unblock them.
+        </ConfirmDialog>
+      )}
     </div>
   )
 }

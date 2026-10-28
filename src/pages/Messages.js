@@ -200,6 +200,7 @@ export default function Messages() {
               other={activeProfile}
               onBack={() => navigate('/messages')}
               onChanged={loadConversations}
+              onBlocked={() => { loadConversations(); navigate('/messages') }}
             />
           ) : otherId && activeMissing ? (
             <div className="chat-center chat-empty">

@@ -18,6 +18,7 @@ import GroupSettings from './pages/GroupSettings'
 import GroupRoles from './pages/GroupRoles'
 import Notifications from './pages/Notifications'
 import Messages from './pages/Messages'
+import Settings from './pages/Settings'
 import Navbar from './components/Navbar'
 import { NotificationsProvider } from './contexts/NotificationsContext'
 import { MessagesProvider } from './contexts/MessagesContext'
@@ -60,6 +61,7 @@ function AppRoutes() {
         <Route path="/map" element={<ProtectedRoute><MapPage /></ProtectedRoute>} />
         <Route path="/event/:id" element={<ProtectedRoute><EventDetail /></ProtectedRoute>} />
         <Route path="/profile/:id" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+        <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
         <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
         <Route path="/messages" element={<ProtectedRoute><Messages /></ProtectedRoute>} />
         <Route path="/messages/:otherId" element={<ProtectedRoute><Messages /></ProtectedRoute>} />

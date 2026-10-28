@@ -29,7 +29,8 @@ export const PERMISSION_GROUPS = [
     items: [
       { key: 'kick_members', label: 'Kick members', desc: 'Remove people from the group — only people with a lower role' },
       { key: 'manage_roles', label: 'Manage roles', desc: 'Create, edit and give out roles below their own' },
-      { key: 'manage_join_requests', label: 'Approve join requests', desc: 'Accept or deny requests to join' }
+      { key: 'manage_join_requests', label: 'Approve join requests', desc: 'Accept or deny requests to join' },
+      { key: 'message_members', label: 'Message members', desc: 'Message, or send message requests to, other members of the group (as each member’s privacy settings allow)' }
     ]
   },
   {
