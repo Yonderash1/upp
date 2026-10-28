@@ -101,7 +101,9 @@ export default function Notifications() {
   function openNotification(n) {
     if (n.type === 'group_event' && n.event_id) navigate(`/event/${n.event_id}`)
     else if (n.type === 'group_announcement' && n.group_id) navigate(`/groups/${n.group_id}`)
+    else if (n.type === 'event_changed' && n.event_id) navigate(`/event/${n.event_id}`)
     else if (n.type === 'connection_request' && n.actor_id) navigate(`/profile/${n.actor_id}`)
+    // group_deleted / event_deleted: nothing left to open
   }
 
   function renderItem(n) {
@@ -122,6 +124,35 @@ export default function Notifications() {
       avatar = n.groups ? <GroupAvatar group={n.groups} size={44} /> : null
       headline = <><strong>{n.groups?.name || 'A group'}</strong> posted an announcement</>
       detail = <div className="notif-title">📢 {n.announcements?.title || n.title}</div>
+    } else if (n.type === 'event_changed') {
+      avatar = n.groups ? <GroupAvatar group={n.groups} size={44} /> : <UserAvatar profile={n.actor} />
+      const who = n.groups?.name || n.group_name || (n.actor?.username ? `@${n.actor.username}` : 'An organiser')
+      headline = <><strong>{who}</strong> changed an event you're going to</>
+      detail = (
+        <>
+          <div className="notif-title">{n.events?.title || n.title}</div>
+          {Array.isArray(n.changes) && n.changes.length > 0 && (
+            <ul className="notif-changes">{n.changes.map(c => <li key={c}>{c}</li>)}</ul>
+          )}
+        </>
+      )
+    } else if (n.type === 'group_deleted') {
+      avatar = <div className="notif-icon">🗑</div>
+      headline = <><strong>{n.group_name || n.title || 'A group'}</strong> was deleted</>
+      detail = (
+        <div className="notif-sub">
+          The group and all of its events and announcements have been removed{n.actor?.username ? ` by @${n.actor.username}` : ''}.
+        </div>
+      )
+    } else if (n.type === 'event_deleted') {
+      avatar = <div className="notif-icon">🗓</div>
+      headline = <>An event you {n.detail === 'interested' ? 'were interested in' : 'were going to'} was deleted</>
+      detail = (
+        <>
+          <div className="notif-title">{n.title}</div>
+          {n.group_name && <div className="notif-sub">Hosted by {n.group_name}</div>}
+        </>
+      )
     } else {
       const state = connStates[n.actor_id]
       avatar = <UserAvatar profile={n.actor} />
@@ -139,7 +170,7 @@ export default function Notifications() {
     }
 
     return (
-      <div key={n.id} className={`notif-item ${isNew ? 'new' : ''}`} onClick={() => openNotification(n)}>
+      <div key={n.id} className={`notif-item ${isNew ? 'new' : ''} ${n.type === 'group_deleted' || n.type === 'event_deleted' ? 'static' : ''}`} onClick={() => openNotification(n)}>
         {avatar}
         <div className="notif-body">
           <div className="notif-headline">{headline}</div>
@@ -181,7 +212,7 @@ export default function Notifications() {
                 className={`switch ${groupPosts ? 'on' : ''}`} onClick={toggleGroupPosts}
               ><span /></button>
             </div>
-            <div className="field-hint" style={{ margin: '12px 0 0' }}>Connection requests always appear here.</div>
+            <div className="field-hint" style={{ margin: '12px 0 0' }}>Connection requests, changes to events you're going to, and deleted groups or events always appear here.</div>
           </div>
         )}
 
@@ -190,7 +221,7 @@ export default function Notifications() {
         {visible.length === 0 && !error ? (
           <div className="empty-state">
             <h3>You're all caught up</h3>
-            <p>New events and announcements from your groups, and connection requests, will show up here.</p>
+            <p>New events and announcements from your groups, changes to events you're going to, and connection requests will show up here.</p>
           </div>
         ) : (
           <>

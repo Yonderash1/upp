@@ -3,7 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import AvatarCropper from '../components/AvatarCropper'
+import GroupAvatar from '../components/GroupAvatar'
 import LabelPicker from '../components/LabelPicker'
+import { useLocationPrefs } from '../contexts/LocationContext'
 
 const GENDERS = ['Man', 'Woman', 'Non-binary', 'Prefer not to say']
 const TABS = ['About', 'Groups', 'Connections']
@@ -35,6 +37,7 @@ export default function Profile() {
   const [savingUsername, setSavingUsername] = useState(false)
 
   const fileInputRef = useRef(null)
+  const { refreshPrefs } = useLocationPrefs()
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
   const isOwnProfile = user?.id === id
@@ -45,7 +48,7 @@ export default function Profile() {
     const [profileRes, interestsRes, membershipsRes, connectionsRes, myConnRes] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', id).single(),
       supabase.from('profile_label_assignments').select('label_id, group_labels(id, name)').eq('user_id', id),
-      supabase.from('group_members').select('group_roles(name, color, is_owner), groups(id, name, description)').eq('user_id', id).order('joined_at', { ascending: true }),
+      supabase.from('group_members').select('group_roles(name, color, is_owner), groups(id, name, description, image_url)').eq('user_id', id).order('joined_at', { ascending: true }),
       supabase.from('connections').select('*, from_profile:from_user(id, username, avatar_url), to_profile:to_user(id, username, avatar_url)')
         .or(`from_user.eq.${id},to_user.eq.${id}`).eq('status', 'accepted'),
       !isOwnProfile
@@ -125,6 +128,7 @@ export default function Profile() {
       city: profile.city || '',
       city_lat: profile.city_lat,
       city_lng: profile.city_lng,
+      distance_unit: profile.distance_unit === 'mi' ? 'mi' : 'km',
     })
     setLocationQuery(profile.city || '')
     setLocationSuggestions([])
@@ -154,7 +158,8 @@ export default function Profile() {
     await supabase.from('profiles').update({
       first_name: editData.first_name, last_name: editData.last_name,
       age: parseInt(editData.age), gender: editData.gender,
-      city: editData.city, city_lat: editData.city_lat, city_lng: editData.city_lng
+      city: editData.city, city_lat: editData.city_lat, city_lng: editData.city_lng,
+      distance_unit: editData.distance_unit === 'mi' ? 'mi' : 'km'
     }).eq('id', user.id)
 
     await supabase.from('profile_label_assignments').delete().eq('user_id', user.id)
@@ -165,6 +170,7 @@ export default function Profile() {
     }
 
     await fetchAll()
+    refreshPrefs()
     setEditing(false)
     setSavingEdit(false)
   }
@@ -287,6 +293,7 @@ export default function Profile() {
                 { label: 'Last Name', value: profile.last_name },
                 { label: 'Age', value: profile.age },
                 { label: 'Gender', value: profile.gender },
+                ...(isOwnProfile ? [{ label: 'Distance Units', value: profile.distance_unit === 'mi' ? 'Miles' : 'Kilometres' }] : []),
               ].map(({ label, value }) => (
                 <div key={label} style={{ background: 'var(--bg3)', borderRadius: 10, padding: '12px 14px' }}>
                   <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{label}</div>
@@ -376,6 +383,21 @@ export default function Profile() {
               )}
             </div>
 
+            <div className="field" style={{ marginBottom: 20 }}>
+              <label>Distance units</label>
+              <div className="option-grid" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 8 }}>
+                {[{ key: 'km', title: 'Kilometres' }, { key: 'mi', title: 'Miles' }].map(u => (
+                  <button type="button" key={u.key}
+                    className={`option-tile ${editData.distance_unit === u.key ? 'selected' : ''}`}
+                    aria-pressed={editData.distance_unit === u.key}
+                    onClick={() => setEditData(d => ({ ...d, distance_unit: u.key }))}>
+                    <strong>{u.title}</strong>
+                  </button>
+                ))}
+              </div>
+              <div className="field-hint" style={{ marginTop: 6, marginBottom: 0 }}>Used for how far away events are.</div>
+            </div>
+
             <div className="field" style={{ marginBottom: 24 }}>
               <label>Interests</label>
               <div style={{ marginTop: 8 }}>
@@ -413,9 +435,7 @@ export default function Profile() {
           ) : memberships.map(m => (
             <div key={m.groups?.id} className="event-card" onClick={() => navigate(`/groups/${m.groups?.id}`)}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                <div style={{ width: 48, height: 48, borderRadius: 12, background: 'var(--accent)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: 20 }}>
-                  {m.groups?.name?.[0]?.toUpperCase()}
-                </div>
+                {m.groups && <GroupAvatar group={m.groups} size={48} />}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: '1rem', marginBottom: 4 }}>{m.groups?.name}</div>
                   <span style={{ display: 'inline-block', fontSize: 12, fontWeight: 700, padding: '2px 10px', borderRadius: 20, background: `${m.group_roles?.color || '#99aab5'}22`, color: m.group_roles?.color || '#99aab5', border: `1px solid ${m.group_roles?.color || '#99aab5'}44` }}>

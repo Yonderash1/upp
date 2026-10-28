@@ -1595,3 +1595,67 @@ a.gc-name:hover { text-decoration: underline; }
 @media (max-width: 640px) {
   .gc-panel { height: calc(100vh - var(--nav-h) - var(--bottom-nav-h) - 130px); }
 }
+
+/* ════════════════════════════════════════════
+   Group feed: coloured post cards + badges
+   ════════════════════════════════════════════ */
+.event-card.post-event        { border-color: rgba(255, 92, 53, 0.45); }
+.event-card.post-event:hover  { border-color: #ff8a5c; box-shadow: 0 0 0 1px #ff8a5c, 0 6px 22px rgba(255, 122, 70, 0.22); }
+.event-card.post-online       { border-color: rgba(52, 152, 219, 0.5); }
+.event-card.post-online:hover { border-color: #6cc3ff; box-shadow: 0 0 0 1px #6cc3ff, 0 6px 22px rgba(80, 175, 240, 0.22); }
+.event-card.post-announcement       { border-color: rgba(155, 89, 182, 0.45); cursor: default; }
+.event-card.post-announcement:hover { border-color: #c98ae6; box-shadow: 0 0 0 1px #c98ae6, 0 6px 22px rgba(185, 120, 220, 0.22); }
+
+.post-badge {
+  display: inline-block; font-size: 11px; font-weight: 700;
+  padding: 4px 10px; border-radius: 20px;
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.post-badge.physical     { background: rgba(255, 92, 53, 0.15);  color: var(--accent); }
+.post-badge.online       { background: rgba(52, 152, 219, 0.15); color: #4aa8e8; }
+.post-badge.announcement { background: rgba(155, 89, 182, 0.15); color: #b36fd0; }
+.post-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; gap: 10px; }
+.post-time { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.post-audience { margin-top: 6px; font-size: 12px; color: var(--muted); }
+
+.event-distance { color: var(--muted); }
+.event-counts { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+
+/* ── Confirm dialog ── */
+.confirm-overlay { z-index: 4000; }
+.confirm-card {
+  width: 100%; max-width: 460px; padding: 26px 24px 22px;
+  background: var(--bg2); border: 1.5px solid var(--border); border-radius: 14px;
+  box-shadow: 0 16px 64px rgba(0, 0, 0, 0.6);
+  animation: fadeUp 0.2s ease;
+}
+.confirm-card.danger { border-color: rgba(231, 76, 60, 0.55); }
+.confirm-icon { font-size: 28px; margin-bottom: 8px; }
+.confirm-title { font-family: 'Syne', sans-serif; font-size: 1.2rem; margin-bottom: 10px; }
+.confirm-body { font-size: 14px; line-height: 1.6; color: var(--muted); }
+.confirm-body p + p, .confirm-body ul { margin-top: 10px; }
+.confirm-body ul { padding-left: 18px; }
+.confirm-body strong, .confirm-required { color: var(--text); overflow-wrap: anywhere; }
+.confirm-actions { display: flex; gap: 10px; margin-top: 22px; }
+.confirm-actions .btn { flex: 1; width: auto; padding: 11px 16px; font-size: 14px; }
+.btn-danger { background: #e74c3c; color: #fff; border: none; }
+.btn-danger:hover { background: #ff5f4f; transform: translateY(-1px); }
+.btn-danger:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+/* ── Members panel: message button (always visible) ── */
+.member-msg {
+  width: 24px; height: 24px; border-radius: 6px; cursor: pointer; flex-shrink: 0;
+  background: var(--card); border: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 1;
+}
+.member-msg:hover { color: var(--accent); border-color: var(--accent); }
+
+/* ── Notifications: change list + icon tile ── */
+.notif-changes { margin-top: 6px; padding-left: 18px; font-size: 13px; color: var(--muted); line-height: 1.5; }
+.notif-changes li::marker { color: var(--accent); }
+.notif-icon {
+  width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg3); border: 1.5px solid var(--border); font-size: 20px;
+}
+.notif-item.static { cursor: default; }

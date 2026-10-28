@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 import LabelPicker from '../components/LabelPicker'
 import AvatarCropper from '../components/AvatarCropper'
 import GroupAvatar from '../components/GroupAvatar'
+import ConfirmDialog from '../components/ConfirmDialog'
 
 const JOIN_MODES = [
   { value: 'open', label: 'Open', desc: 'Anyone can join instantly' },
@@ -29,6 +30,7 @@ export default function GroupSettings() {
   const [canManageRoles, setCanManageRoles] = useState(false)
   const [cropSrc, setCropSrc] = useState(null)
   const [uploadingImage, setUploadingImage] = useState(false)
+  const [dialog, setDialog] = useState(null)   // 'image' | 'delete' | null
   const fileInputRef = useRef(null)
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -120,16 +122,16 @@ export default function GroupSettings() {
   }
 
   async function handleRemoveImage() {
-    if (!window.confirm('Remove the group image?')) return
     await supabase.storage.from('group-avatars').remove([`${id}/avatar.jpg`])
     const { error: updateErr } = await supabase.from('groups').update({ image_url: null }).eq('id', id)
-    if (updateErr) { setError(updateErr.message); return }
+    if (updateErr) return updateErr.message
     setGroup(g => ({ ...g, image_url: null }))
   }
 
   async function handleDelete() {
-    if (!window.confirm(`Permanently delete "${group.name}"? This will remove all events and announcements.`)) return
-    await supabase.from('groups').delete().eq('id', id)
+    const { data, error: err } = await supabase.from('groups').delete().eq('id', id).select('id')
+    if (err) return err.message
+    if (!data || data.length === 0) return "You don't have permission to delete this group"
     navigate('/groups')
   }
 
@@ -137,6 +139,22 @@ export default function GroupSettings() {
 
   return (
     <div className="page">
+      {dialog === 'image' && (
+        <ConfirmDialog title="Remove the group image?" confirmLabel="Remove image" danger
+          onConfirm={handleRemoveImage} onCancel={() => setDialog(null)}>
+          <p>The group will go back to showing the first letter of its name.</p>
+        </ConfirmDialog>
+      )}
+      {dialog === 'delete' && (
+        <ConfirmDialog title={`Delete ${group.name}?`} confirmLabel="Delete group forever" danger
+          requireText={group.name} onConfirm={handleDelete} onCancel={() => setDialog(null)}>
+          <p>This <strong>permanently deletes</strong> the group, along with all of its events, announcements, chat channels and roles. It cannot be undone.</p>
+          <ul>
+            <li>Every member will be notified that the group was deleted.</li>
+            <li>Anyone going to, or interested in, one of its events will be notified that the event was deleted.</li>
+          </ul>
+        </ConfirmDialog>
+      )}
       {cropSrc && (
         <AvatarCropper imageSrc={cropSrc} title="Adjust group image"
           onSave={handleCropSave} onCancel={() => setCropSrc(null)} />
@@ -182,7 +200,7 @@ export default function GroupSettings() {
                 {group.image_url ? 'Change image' : 'Upload image'}
               </button>
               {group.image_url && (
-                <button type="button" onClick={handleRemoveImage}
+                <button type="button" onClick={() => setDialog('image')}
                   style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, cursor: 'pointer', padding: 0 }}>
                   Remove image
                 </button>
@@ -257,9 +275,9 @@ export default function GroupSettings() {
           <div style={{ marginTop: 48, paddingTop: 24, borderTop: '1px solid var(--border)' }}>
             <h3 style={{ color: '#e74c3c', marginBottom: 8, fontSize: '1rem' }}>Danger Zone</h3>
             <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
-              Deleting this group will permanently remove all events and announcements. This cannot be undone.
+              Deleting this group will permanently remove all events and announcements, and notify its members. You'll be asked to type the group name to confirm.
             </p>
-            <button type="button" onClick={handleDelete} style={{
+            <button type="button" onClick={() => setDialog('delete')} style={{
               background: 'rgba(231,76,60,0.1)', border: '1.5px solid rgba(231,76,60,0.4)',
               color: '#e74c3c', borderRadius: 10, padding: '10px 20px',
               fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'Syne, sans-serif'

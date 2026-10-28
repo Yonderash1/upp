@@ -40,6 +40,7 @@ export default function EventForm({ groupId, userId, editEvent, onSuccess, onCan
   const [locationDetails, setLocationDetails] = useState(editEvent?.location_details || '')
   const [latlng, setLatlng] = useState(editEvent?.lat ? { lat: editEvent.lat, lng: editEvent.lng } : null)
   const [labels, setLabels] = useState([])
+  const [origLabelIds, setOrigLabelIds] = useState(null)   // labels the event had when the form opened (null = still loading)
   const [perm, setPerm] = useState(() => ({
     maxMode: editEvent?.max_attendees ? 'limit' : 'none',
     maxAttendees: editEvent?.max_attendees ? String(editEvent.max_attendees) : '',
@@ -65,7 +66,11 @@ export default function EventForm({ groupId, userId, editEvent, onSuccess, onCan
       .from('event_label_assignments')
       .select('group_labels(id, name)')
       .eq('event_id', editEvent.id)
-      .then(({ data }) => setLabels((data || []).map(r => r.group_labels).filter(Boolean)))
+      .then(({ data }) => {
+        const loaded = (data || []).map(r => r.group_labels).filter(Boolean)
+        setLabels(loaded)
+        setOrigLabelIds(loaded.map(l => l.id))
+      })
   }, [editEvent?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // The group's roles, for the "open to / visible to" role pickers
@@ -196,17 +201,24 @@ export default function EventForm({ groupId, userId, editEvent, onSuccess, onCan
       eventId = data.id
     }
 
-    // Save labels (replace the old set)
+    // Save labels (replace the old set) — when editing, only if they actually changed
+    const sameIds = ids => ids.map(String).sort().join(',')
+    const labelsChanged = !editEvent || (origLabelIds !== null && sameIds(origLabelIds) !== sameIds(labels.map(l => l.id)))
     let labelError = null
-    if (editEvent) {
+    if (editEvent && labelsChanged) {
       const { error: delErr } = await supabase.from('event_label_assignments').delete().eq('event_id', eventId)
       if (delErr) labelError = delErr
     }
-    if (!labelError && labels.length > 0) {
+    if (!labelError && labelsChanged && labels.length > 0) {
       const { error: insErr } = await supabase
         .from('event_label_assignments')
         .insert(labels.map(l => ({ event_id: eventId, label_id: l.id })))
       if (insErr) labelError = insErr
+    }
+    if (editEvent && labelsChanged && !labelError) {
+      // adds "Labels changed" to the same notification the rest of this save sent to people who are going
+      const { error: notifyErr } = await supabase.rpc('notify_event_labels_changed', { p_event: eventId })
+      if (notifyErr) console.error('Label change notification failed:', notifyErr)
     }
     if (labelError) {
       console.error('Saving event labels failed:', labelError)

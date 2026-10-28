@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import GroupAvatar from '../components/GroupAvatar'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   addMonths, subMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
@@ -9,7 +10,7 @@ import { useAuth } from '../contexts/AuthContext'
 import EventLabels from '../components/EventLabels'
 import { formatEventRange } from '../lib/eventUtils'
 
-const EVENT_SELECT = '*, groups(id, name), profiles(username), event_label_assignments(group_labels(id, name))'
+const EVENT_SELECT = '*, groups(id, name, image_url), profiles(username), event_label_assignments(group_labels(id, name))'
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 const CalIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
@@ -82,7 +83,7 @@ function PlannerCard({ ev, status, busy, onChange }) {
         <div className="pl-host">
           {ev.groups ? (
             <>
-              <div className="pl-group-tile">{ev.groups.name[0].toUpperCase()}</div>
+              <GroupAvatar group={ev.groups} size={24} />
               <span className="pl-host-link" onClick={() => navigate(`/groups/${ev.groups.id}`)}>{ev.groups.name}</span>
             </>
           ) : (
@@ -399,7 +400,7 @@ export default function Planner() {
                     <div className="pl-host">
                       {ev.groups ? (
                         <>
-                          <div className="pl-group-tile">{ev.groups.name[0].toUpperCase()}</div>
+                          <GroupAvatar group={ev.groups} size={24} />
                           <span>{ev.groups.name}</span>
                         </>
                       ) : (

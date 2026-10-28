@@ -2,7 +2,7 @@ import Modal from './Modal'
 import { sortRoles } from '../lib/permissions'
 
 // Dropdown: anyone / all members / "this role and everyone above it"
-function AudienceSelect({ value, onChange, roles }) {
+export function AudienceSelect({ value, onChange, roles }) {
   // The base "Member" role is the same as "all members", so it isn't offered here
   const choices = sortRoles(roles).filter(r => !r.is_default)
 

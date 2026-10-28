@@ -13,8 +13,11 @@ import EventForm from '../components/EventForm'
 import EventLabels from '../components/EventLabels'
 import GroupChannel from '../components/GroupChannel'
 import ChannelForm from '../components/ChannelForm'
-import { formatEventRange } from '../lib/eventUtils'
-import { describeJoinAccess, getAttendState, getJoinStatus, EVENT_ROLE_SELECT } from '../lib/eventAccess'
+import ConfirmDialog from '../components/ConfirmDialog'
+import EventDistance from '../components/EventDistance'
+import { AudienceSelect } from '../components/EventPermissions'
+import { formatEventRange, eventKind } from '../lib/eventUtils'
+import { describeJoinAccess, getAttendState, getJoinStatus, audienceFromEvent, audienceToStored, audienceShort, EVENT_ROLE_SELECT } from '../lib/eventAccess'
 import { hasPerm, channelAccess } from '../lib/permissions'
 
 const joinModeLabel = { open: 'Open', request: 'Request to join', invite: 'Invite only' }
@@ -60,22 +63,31 @@ function Lightbox({ src, onClose }) {
 }
 
 // ── Announcement Form (create + edit) ────────────────────────
-function AnnouncementForm({ groupId, userId, editAnnouncement, onSuccess, onCancel }) {
+function AnnouncementForm({ groupId, userId, roles, editAnnouncement, onSuccess, onCancel }) {
   const [title, setTitle] = useState(editAnnouncement?.title || '')
   const [body, setBody] = useState(editAnnouncement?.body || '')
+  // Who gets to see it — new announcements start as "group members only"
+  const [audience, setAudience] = useState(() =>
+    editAnnouncement
+      ? audienceFromEvent(editAnnouncement.visibility_access, editAnnouncement.visibility_min_role)
+      : { mode: 'members', roleId: null })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   async function handleSubmit(e) {
     e.preventDefault()
-    setLoading(true); setError('')
+    setError('')
+    if (audience.mode === 'role' && !audience.roleId) { setError('Please choose which role can see this announcement'); return }
+    setLoading(true)
+    const stored = audienceToStored(audience)
+    const audienceFields = { visibility_access: stored.access, visibility_min_role: stored.minRole }
     if (editAnnouncement) {
       const { data, error: err } = await supabase
-        .from('announcements').update({ title, body }).eq('id', editAnnouncement.id).select('id')
+        .from('announcements').update({ title, body, ...audienceFields }).eq('id', editAnnouncement.id).select('id')
       if (err) { setError(err.message); setLoading(false); return }
       if (!data || data.length === 0) { setError("You don't have permission to edit this announcement"); setLoading(false); return }
     } else {
-      const { error: err } = await supabase.from('announcements').insert({ group_id: groupId, user_id: userId, title, body })
+      const { error: err } = await supabase.from('announcements').insert({ group_id: groupId, user_id: userId, title, body, ...audienceFields })
       if (err) { setError(err.message); setLoading(false); return }
     }
     onSuccess()
@@ -85,6 +97,13 @@ function AnnouncementForm({ groupId, userId, editAnnouncement, onSuccess, onCanc
     <form onSubmit={handleSubmit}>
       <div className="field"><label>Title</label><input value={title} onChange={e => setTitle(e.target.value)} placeholder="Announcement title" required autoFocus /></div>
       <div className="field"><label>Message</label><textarea value={body} onChange={e => setBody(e.target.value)} placeholder="What do you want to tell your members?" rows={5} required /></div>
+      <div className="field">
+        <label>Who can see this announcement?</label>
+        <AudienceSelect value={audience} onChange={setAudience} roles={roles} />
+        <div className="field-hint" style={{ marginTop: 8, marginBottom: 0 }}>
+          Only these people will see it on the group page and get notified about it.
+        </div>
+      </div>
       {error && <div className="error-msg">{error}</div>}
       <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
         <button className="btn btn-primary" type="submit" disabled={loading} style={{ background: '#9b59b6' }}>
@@ -124,6 +143,8 @@ export default function GroupDetail() {
   const [attendingIds, setAttendingIds] = useState(new Set())   // events here that I'm going to
   const [interestIds, setInterestIds] = useState(new Set())     // events here that I'm interested in
   const [attendCounts, setAttendCounts] = useState({})          // event id -> number going
+  const [interestCounts, setInterestCounts] = useState({})      // event id -> number interested
+  const [dialog, setDialog] = useState(null)                     // the "are you sure?" pop-up, if one is open
   const [searchParams] = useSearchParams()
   const highlightId = searchParams.get('event')                 // set when arriving from the Planner
   const { user } = useAuth()
@@ -178,12 +199,12 @@ export default function GroupDetail() {
   async function fetchEventStatus(list) {
     const ids = list.map(e => e.id)
     if (ids.length === 0) {
-      setAttendingIds(new Set()); setInterestIds(new Set()); setAttendCounts({})
+      setAttendingIds(new Set()); setInterestIds(new Set()); setAttendCounts({}); setInterestCounts({})
       return
     }
     const [att, int] = await Promise.all([
       supabase.from('attendees').select('event_id, user_id').in('event_id', ids),
-      supabase.from('event_interests').select('event_id').eq('user_id', user.id).in('event_id', ids)
+      supabase.from('event_interests').select('event_id, user_id').in('event_id', ids)
     ])
     const counts = {}
     const mine = new Set()
@@ -191,9 +212,16 @@ export default function GroupDetail() {
       counts[r.event_id] = (counts[r.event_id] || 0) + 1
       if (r.user_id === user.id) mine.add(r.event_id)
     })
+    const interested = {}
+    const myInterest = new Set()
+    ;(int.data || []).forEach(r => {
+      interested[r.event_id] = (interested[r.event_id] || 0) + 1
+      if (r.user_id === user.id) myInterest.add(r.event_id)
+    })
     setAttendCounts(counts)
     setAttendingIds(mine)
-    setInterestIds(new Set((int.data || []).map(r => r.event_id)))
+    setInterestCounts(interested)
+    setInterestIds(myInterest)
   }
 
   async function toggleAttend(e, eventId) {
@@ -232,22 +260,47 @@ export default function GroupDetail() {
     fetchAll(); setJoining(false)
   }
 
-  async function handleLeave() {
-    if (isOwner) { alert("You're the owner — you cannot leave your own group."); return }
-    await supabase.from('group_members').delete().eq('group_id', id).eq('user_id', user.id)
-    setMyMembership(null); fetchAll()
+  // What leaving means depends on how people get into this group
+  function askLeave() {
+    if (isOwner) { setDialog({ title: "You can't leave", confirmLabel: 'OK', onConfirm: () => {}, children: "You're the owner of this group, so you can't leave it. You can delete the group from its settings." }); return }
+    const rejoin = group.join_mode === 'invite'
+      ? <p><strong>This group is invite only.</strong> If you leave, you will only be able to rejoin if an admin invites you again.</p>
+      : group.join_mode === 'request'
+        ? <p><strong>This group is request to join.</strong> If you leave, you will have to request to join again and be approved before you can rejoin.</p>
+        : <p>This group is open, so you can rejoin at any time.</p>
+    setDialog({
+      title: `Leave ${group.name}?`, confirmLabel: 'Leave group', danger: true,
+      children: <><p>You'll lose access to the group's posts and chat channels.</p>{rejoin}</>,
+      onConfirm: async () => {
+        const { error } = await supabase.from('group_members').delete().eq('group_id', id).eq('user_id', user.id)
+        if (error) return error.message
+        setMyMembership(null); fetchAll()
+      }
+    })
   }
 
-  async function handleDeleteEvent(eventId) {
-    if (!window.confirm('Delete this event?')) return
-    await supabase.from('events').delete().eq('id', eventId)
-    fetchAll()
+  function askDeleteEvent(item) {
+    setDialog({
+      title: 'Delete this event?', confirmLabel: 'Delete event', danger: true,
+      children: <><p><strong>{item.title}</strong> will be removed for everyone.</p><p>People who said they're going or interested will be notified.</p></>,
+      onConfirm: async () => {
+        const { error } = await supabase.from('events').delete().eq('id', item.id)
+        if (error) return error.message
+        fetchAll()
+      }
+    })
   }
 
-  async function handleDeleteAnnouncement(announcementId) {
-    if (!window.confirm('Delete this announcement?')) return
-    await supabase.from('announcements').delete().eq('id', announcementId)
-    fetchAll()
+  function askDeleteAnnouncement(item) {
+    setDialog({
+      title: 'Delete this announcement?', confirmLabel: 'Delete announcement', danger: true,
+      children: <p><strong>{item.title}</strong> will be removed for everyone.</p>,
+      onConfirm: async () => {
+        const { error } = await supabase.from('announcements').delete().eq('id', item.id)
+        if (error) return error.message
+        fetchAll()
+      }
+    })
   }
 
   async function approveRequest(reqUserId) {
@@ -269,7 +322,7 @@ export default function GroupDetail() {
 
   async function kickMember(memberId) {
     const { error } = await supabase.rpc('kick_group_member', { p_group: id, p_user: memberId })
-    if (error) alert(error.message)
+    if (error) return error.message   // the pop-up shows it
     fetchAll()
   }
 
@@ -286,14 +339,15 @@ export default function GroupDetail() {
   const canPost = can('create_events') || can('create_announcements')
   const allowedPosts = [can('create_events') && 'event', can('create_announcements') && 'announcement'].filter(Boolean)
 
+  // Announcements always sit above everything else, newest first. Events follow, soonest first.
   const feed = [
-    ...events.map(e => ({ ...e, _type: 'event' })),
-    ...announcements.map(a => ({ ...a, _type: 'announcement' }))
-  ].sort((a, b) => {
-    const dateA = a._type === 'event' ? new Date(a.event_date) : new Date(a.created_at)
-    const dateB = b._type === 'event' ? new Date(b.event_date) : new Date(b.created_at)
-    return dateA - dateB
-  })
+    ...[...announcements]
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      .map(a => ({ ...a, _type: 'announcement' })),
+    ...[...events]
+      .sort((a, b) => new Date(a.event_date) - new Date(b.event_date))
+      .map(e => ({ ...e, _type: 'event' }))
+  ]
 
   const modalOpen = !!(composer || editingEvent || editingAnnouncement)
   const modalTitle = editingEvent ? 'Edit event'
@@ -307,6 +361,7 @@ export default function GroupDetail() {
   return (
     <div className="page">
       {lightboxSrc && <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
+      {dialog && <ConfirmDialog {...dialog} onCancel={() => setDialog(null)} />}
 
       {modalOpen && (
         <Modal title={modalTitle} onClose={closeComposer} width={composer === 'choose' ? 640 : 760}>
@@ -315,7 +370,7 @@ export default function GroupDetail() {
             <EventForm groupId={id} userId={user.id} editEvent={editingEvent} onSuccess={afterPost} onCancel={closeComposer} />
           )}
           {(composer === 'announcement' || editingAnnouncement) && (
-            <AnnouncementForm groupId={id} userId={user.id} editAnnouncement={editingAnnouncement} onSuccess={afterPost} onCancel={closeComposer} />
+            <AnnouncementForm groupId={id} userId={user.id} roles={roles} editAnnouncement={editingAnnouncement} onSuccess={afterPost} onCancel={closeComposer} />
           )}
         </Modal>
       )}
@@ -398,7 +453,7 @@ export default function GroupDetail() {
             </div>
           )}
           {isMember && !isOwner && (
-            <button className="btn btn-ghost" onClick={handleLeave} style={{ fontSize: 13 }}>Leave group</button>
+            <button className="btn btn-ghost" onClick={askLeave} style={{ fontSize: 13 }}>Leave group</button>
           )}
         </div>}
 
@@ -445,23 +500,27 @@ export default function GroupDetail() {
             {canPost ? 'No posts yet — hit "New post" to get started!' : 'Nothing posted yet'}
           </p>
         ) : (
-          feed.map(item => item._type === 'event' ? (
+          feed.map(item => item._type === 'event' ? (() => {
+            const kind = eventKind(item)
+            return (
             <div key={`event-${item.id}`}>
               <div
                 id={`event-${item.id}`}
-                className={`event-card ${String(item.id) === highlightId ? 'event-highlight' : ''}`}
+                className={`event-card post-card ${kind.tone === 'online' ? 'post-online' : 'post-event'} ${String(item.id) === highlightId ? 'event-highlight' : ''}`}
                 onClick={() => navigate(`/event/${item.id}`)}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <EventLabels event={item} />
-                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                <div className="post-header">
+                  <span className={`post-badge ${kind.tone}`}>{kind.icon} {kind.label}</span>
+                  <span className="post-time">
                     {formatDistanceToNow(new Date(item.created_at || item.event_date), { addSuffix: true })}
                   </span>
                 </div>
+                <EventLabels event={item} />
                 <h3 className="event-title">{item.title}</h3>
                 <div className="event-meta">
                   <span>🗓 {formatEventRange(item.event_date, item.event_end)}</span>
                   <span>{item.location_type === 'online' ? '💻' : '📍'} {item.location_name}</span>
+                  <EventDistance event={item} />
                   <span>🎟 {describeJoinAccess(item).replace('This event is open', 'Open')}</span>
                 </div>
                 {item.description && <p className="event-desc">{item.description}</p>}
@@ -470,6 +529,7 @@ export default function GroupDetail() {
                   const going = attendingIds.has(item.id)
                   const interested = interestIds.has(item.id)
                   const count = attendCounts[item.id] || 0
+                  const interestedCount = interestCounts[item.id] || 0
                   const state = getAttendState({ event: item, myRank, isAttending: going, attendeeCount: count })
                   const canInterest = !going && getJoinStatus(item, myRank) === 'ok'
                   return (
@@ -489,8 +549,11 @@ export default function GroupDetail() {
                           {interested ? '★ Interested' : '☆ Interested'}
                         </button>
                       )}
-                      <span className="group-event-count">
-                        {item.max_attendees != null ? `${count} / ${item.max_attendees} going` : `${count} going`}
+                      <span className="event-counts">
+                        <span className="group-event-count">
+                          {item.max_attendees != null ? `${count} / ${item.max_attendees} going` : `${count} going`}
+                        </span>
+                        <span className="group-event-count">{interestedCount} interested</span>
                       </span>
                     </div>
                   )
@@ -506,7 +569,7 @@ export default function GroupDetail() {
                     )}
                     {can('delete_events') && (
                       <button className="btn btn-ghost" style={{ padding: '5px 12px', fontSize: 12, color: '#e74c3c', borderColor: '#e74c3c' }}
-                        onClick={() => handleDeleteEvent(item.id)}>
+                        onClick={() => askDeleteEvent(item)}>
                         🗑 Delete
                       </button>
                     )}
@@ -514,13 +577,12 @@ export default function GroupDetail() {
                 )}
               </div>
             </div>
-          ) : (
-            <div key={`announcement-${item.id}`} className="event-card" style={{ borderColor: 'rgba(155,89,182,0.4)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, background: 'rgba(155,89,182,0.15)', color: '#9b59b6', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                  📢 Announcement
-                </span>
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+            )
+          })() : (
+            <div key={`announcement-${item.id}`} className="event-card post-card post-announcement">
+              <div className="post-header">
+                <span className="post-badge announcement">📢 Announcement</span>
+                <span className="post-time">
                   {formatDistanceToNow(new Date(item.created_at), { addSuffix: true })}
                 </span>
               </div>
@@ -542,6 +604,11 @@ export default function GroupDetail() {
                 Posted by @{item.profiles?.username}
               </div>
               {(can('edit_announcements') || can('delete_announcements')) && (
+                <div className="post-audience">
+                  👁 Visible to: {audienceShort(audienceFromEvent(item.visibility_access, item.visibility_min_role), roles)}
+                </div>
+              )}
+              {(can('edit_announcements') || can('delete_announcements')) && (
                 <div style={{ display: 'flex', gap: 8, marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
                   {can('edit_announcements') && (
                     <button className="btn btn-ghost" style={{ padding: '5px 12px', fontSize: 12 }}
@@ -551,7 +618,7 @@ export default function GroupDetail() {
                   )}
                   {can('delete_announcements') && (
                     <button className="btn btn-ghost" style={{ padding: '5px 12px', fontSize: 12, color: '#e74c3c', borderColor: '#e74c3c' }}
-                      onClick={() => handleDeleteAnnouncement(item.id)}>
+                      onClick={() => askDeleteAnnouncement(item)}>
                       🗑 Delete
                     </button>
                   )}
@@ -572,6 +639,7 @@ export default function GroupDetail() {
         currentUserId={user.id}
         onChangeRole={changeRole}
         onKick={kickMember}
+        joinMode={group.join_mode}
         open={membersOpen}
         onToggle={() => setMembersOpen(o => !o)}
       />

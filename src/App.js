@@ -21,6 +21,7 @@ import Messages from './pages/Messages'
 import Navbar from './components/Navbar'
 import { NotificationsProvider } from './contexts/NotificationsContext'
 import { MessagesProvider } from './contexts/MessagesContext'
+import { LocationProvider } from './contexts/LocationContext'
 import './App.css'
 
 function ProtectedRoute({ children }) {
@@ -79,7 +80,9 @@ export default function App() {
       <Router>
         <NotificationsProvider>
           <MessagesProvider>
-            <AppRoutes />
+            <LocationProvider>
+              <AppRoutes />
+            </LocationProvider>
           </MessagesProvider>
         </NotificationsProvider>
       </Router>

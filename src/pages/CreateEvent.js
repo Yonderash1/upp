@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import GroupAvatar from '../components/GroupAvatar'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -18,7 +19,7 @@ export default function CreateEvent() {
   async function fetchAdminGroups() {
     const { data } = await supabase
       .from('group_members')
-      .select('group_id, group_roles(is_owner, permissions), groups(id, name)')
+      .select('group_id, group_roles(is_owner, permissions), groups(id, name, image_url)')
       .eq('user_id', user.id)
     const groups = (data || [])
       .filter(m => m.group_roles && (m.group_roles.is_owner || (m.group_roles.permissions || []).includes('create_events')))
@@ -61,18 +62,14 @@ export default function CreateEvent() {
             <label>Posting as</label>
             {adminGroups.length === 1 ? (
               <div style={{ padding: '12px 16px', background: 'var(--bg3)', border: '1.5px solid var(--accent)', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: 16 }}>
-                  {adminGroups[0].name[0].toUpperCase()}
-                </div>
+                <GroupAvatar group={adminGroups[0]} size={36} />
                 <span style={{ fontWeight: 600 }}>{adminGroups[0].name}</span>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
                 {adminGroups.map(g => (
                   <div key={g.id} onClick={() => setSelectedGroup(g.id)} style={{ padding: '12px 16px', borderRadius: 10, cursor: 'pointer', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: 12, border: `1.5px solid ${selectedGroup === g.id ? 'var(--accent)' : 'var(--border)'}`, background: selectedGroup === g.id ? 'rgba(255,92,53,0.08)' : 'var(--bg3)' }}>
-                    <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: 16 }}>
-                      {g.name[0].toUpperCase()}
-                    </div>
+                    <GroupAvatar group={g} size={36} />
                     <span style={{ fontWeight: 600, color: selectedGroup === g.id ? 'var(--accent)' : 'var(--text)' }}>{g.name}</span>
                   </div>
                 ))}

@@ -41,3 +41,37 @@ export function getComingUp(events, attendingIds, { days = 14, max = 3 } = {}) {
 export function rankFeedEvents(events, context = {}) { // eslint-disable-line no-unused-vars
   return [...events].sort((a, b) => new Date(a.event_date) - new Date(b.event_date))
 }
+
+// ── What kind of event is it? (label shown at the top of an event card) ──
+//   📍 EVENT          – pinned on the map
+//   🖱️ ONLINE EVENT   – online (gets its own border colour)
+//   ⏰ EVENT           – a place described in words, no map pin
+//   📆 EVENT          – location still to be confirmed
+export function eventKind(event) {
+  const type = event?.location_type
+  if (type === 'online') return { key: 'online', icon: '🖱️', label: 'Online event', tone: 'online' }
+  if (type === 'tbc') return { key: 'tbc', icon: '📆', label: 'Event', tone: 'physical' }
+  // older events default to "physical" even when they were never pinned
+  if (type === 'other' || (type === 'physical' && (event.lat == null || event.lng == null))) {
+    return { key: 'other', icon: '⏰', label: 'Event', tone: 'physical' }
+  }
+  return { key: 'physical', icon: '📍', label: 'Event', tone: 'physical' }
+}
+
+// ── Distances ──
+export function haversineKm(a, b) {
+  const rad = d => (d * Math.PI) / 180
+  const dLat = rad(b.lat - a.lat)
+  const dLng = rad(b.lng - a.lng)
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2
+  return 2 * 6371 * Math.asin(Math.sqrt(h))
+}
+
+// unit: 'km' (default) or 'mi'
+export function formatDistance(km, unit = 'km') {
+  const mi = unit === 'mi'
+  const value = mi ? km * 0.621371 : km
+  const label = mi ? 'mi' : 'km'
+  if (value < 0.1) return `<0.1 ${label}`
+  return `${value < 10 ? value.toFixed(1) : Math.round(value).toLocaleString()} ${label}`
+}

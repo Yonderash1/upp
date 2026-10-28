@@ -3,6 +3,8 @@ import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import EventLabels from '../components/EventLabels'
+import GroupAvatar from '../components/GroupAvatar'
+import EventDistance from '../components/EventDistance'
 import { formatEventRange, getComingUp, rankFeedEvents } from '../lib/eventUtils'
 import { getAttendState, EVENT_ROLE_SELECT } from '../lib/eventAccess'
 
@@ -15,6 +17,7 @@ export default function Home() {
   const [attending, setAttending] = useState(new Set())
   const [roles, setRoles] = useState({})     // group id -> this person's role there
   const [counts, setCounts] = useState({})   // event id -> number going
+  const [interestCounts, setInterestCounts] = useState({})   // event id -> number interested
   const { user } = useAuth()
   const navigate = useNavigate()
 
@@ -25,7 +28,7 @@ export default function Home() {
   async function fetchEvents() {
     const { data } = await supabase
       .from('events')
-      .select(`*, profiles(username), groups(id, name), event_label_assignments(group_labels(id, name)), ${EVENT_ROLE_SELECT}`)
+      .select(`*, profiles(username), groups(id, name, image_url), event_label_assignments(group_labels(id, name)), ${EVENT_ROLE_SELECT}`)
       .order('event_date', { ascending: true })
       .gte('event_date', new Date().toISOString())
     setEvents(data || [])
@@ -41,10 +44,16 @@ export default function Home() {
 
   async function fetchCounts(eventIds) {
     if (eventIds.length === 0) return
-    const { data } = await supabase.from('attendees').select('event_id').in('event_id', eventIds)
+    const [att, int] = await Promise.all([
+      supabase.from('attendees').select('event_id').in('event_id', eventIds),
+      supabase.from('event_interests').select('event_id').in('event_id', eventIds)
+    ])
     const map = {}
-    ;(data || []).forEach(a => { map[a.event_id] = (map[a.event_id] || 0) + 1 })
+    ;(att.data || []).forEach(a => { map[a.event_id] = (map[a.event_id] || 0) + 1 })
     setCounts(map)
+    const imap = {}
+    ;(int.data || []).forEach(a => { imap[a.event_id] = (imap[a.event_id] || 0) + 1 })
+    setInterestCounts(imap)
   }
 
   async function fetchAttending() {
@@ -64,6 +73,7 @@ export default function Home() {
       await supabase.from('event_interests').delete().eq('event_id', eventId).eq('user_id', user.id)
       setAttending(prev => new Set([...prev, eventId]))
       setCounts(prev => ({ ...prev, [eventId]: (prev[eventId] || 0) + 1 }))
+      fetchCounts(events.map(ev => ev.id))   // attending removes my "interested", so refresh both counts
     }
   }
 
@@ -83,15 +93,18 @@ export default function Home() {
       <div className="event-meta">
         <span><CalIcon /> {formatEventRange(event.event_date, event.event_end)}</span>
         <span><PinIcon /> {event.location_name}</span>
+        <EventDistance event={event} />
+        <span className="event-counts">
+          <span>{counts[event.id] || 0} going</span>
+          <span>{interestCounts[event.id] || 0} interested</span>
+        </span>
       </div>
       {event.description && <p className="event-desc">{event.description}</p>}
       <div className="event-footer">
         <div className="event-host">
           {event.groups ? (
             <>
-              <div style={{ width: 26, height: 26, borderRadius: 6, background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, fontFamily: 'Syne, sans-serif' }}>
-                {event.groups.name[0].toUpperCase()}
-              </div>
+              <GroupAvatar group={event.groups} size={26} />
               <span
                 style={{ color: 'var(--accent)', fontWeight: 600, cursor: 'pointer' }}
                 onClick={e => { e.stopPropagation(); navigate(`/groups/${event.groups.id}`) }}
