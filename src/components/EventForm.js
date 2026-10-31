@@ -5,6 +5,7 @@ import LabelPicker from './LabelPicker'
 import LocationMapPicker from './LocationMapPicker'
 import EventPermissions from './EventPermissions'
 import { reverseGeocode } from '../lib/geocode'
+import { prepareEventImage, uploadEventImage } from '../lib/eventImage'
 import { audienceFromEvent, audienceToStored, audienceShort } from '../lib/eventAccess'
 
 const MAX_LABELS = 5
@@ -48,6 +49,10 @@ export default function EventForm({ groupId, userId, editEvent, onSuccess, onCan
     visibility: audienceFromEvent(editEvent?.visibility_access, editEvent?.visibility_min_role),
   }))
   const [groupRoles, setGroupRoles] = useState([])
+  // Thumbnail: the saved one (when editing), plus a newly chosen picture waiting to upload
+  const [imageUrl, setImageUrl] = useState(editEvent?.image_url || null)
+  const [newImage, setNewImage] = useState(null)       // { blob, preview } once a picture has been chosen
+  const [imageBusy, setImageBusy] = useState(false)
   const [showPerms, setShowPerms] = useState(false)
   const [lookingUp, setLookingUp] = useState(false)
   const [lookupFailed, setLookupFailed] = useState(false)
@@ -88,11 +93,17 @@ export default function EventForm({ groupId, userId, editEvent, onSuccess, onCan
     setAutoFilled(false)
   }
 
-  // Dropping a pin fills in the location name (unless they've typed their own)
-  async function handlePick(point) {
-    setLatlng(point)
+  // Dropping a pin fills in the location name (unless they've typed their own).
+  // `label` is the address text when the pin came from the search box, so no extra lookup is needed.
+  async function handlePick(point, label) {
+    setLatlng({ lat: point.lat, lng: point.lng })
     setLookupFailed(false)
     const myLookup = ++lookupId.current
+    if (label) {
+      setLookingUp(false)
+      if (!nameEdited.current) { setLocationName(label); setAutoFilled(true) }
+      return
+    }
     setLookingUp(true)
     try {
       const name = await reverseGeocode(point.lat, point.lng)
@@ -112,6 +123,26 @@ export default function EventForm({ groupId, userId, editEvent, onSuccess, onCan
     setLocationName('')
     nameEdited.current = false
     setAutoFilled(false); setLookingUp(false); setLookupFailed(false)
+  }
+
+  async function handleImageChosen(e) {
+    const file = e.target.files?.[0]
+    e.target.value = ''           // lets the same file be chosen again later
+    if (!file) return
+    setError(''); setImageBusy(true)
+    try {
+      const blob = await prepareEventImage(file)
+      setNewImage(prev => { if (prev) URL.revokeObjectURL(prev.preview); return { blob, preview: URL.createObjectURL(blob) } })
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setImageBusy(false)
+    }
+  }
+
+  function removeImage() {
+    setNewImage(prev => { if (prev) URL.revokeObjectURL(prev.preview); return null })
+    setImageUrl(null)
   }
 
   function handleStartDate(value) {
@@ -138,7 +169,7 @@ export default function EventForm({ groupId, userId, editEvent, onSuccess, onCan
     if (!locationType) { setError('Please choose where your event is happening'); return }
     if (locationType === 'physical') {
       if (!locationName.trim()) { setError('Please add a name for the location'); return }
-      if (!latlng) { setError('Please click the map to pin the location'); return }
+      if (!latlng) { setError('Please pin the location — click the map or search for an address'); return }
     }
     if (locationType === 'other' && !locationName.trim()) {
       setError('Please enter the location name'); return
@@ -163,12 +194,22 @@ export default function EventForm({ groupId, userId, editEvent, onSuccess, onCan
         setLoading(false); return
       }
     }
+    let finalImageUrl = imageUrl
+    if (newImage) {
+      try {
+        finalImageUrl = await uploadEventImage(groupId, newImage.blob)
+      } catch (err) {
+        setError('Could not upload the thumbnail: ' + (err.message || 'unknown error'))
+        setLoading(false); return
+      }
+    }
     const joinStored = audienceToStored(perm.join)
     const visStored = audienceToStored(perm.visibility)
     const hasPlaceName = locationType === 'physical' || locationType === 'other'
     const payload = {
       title: title.trim(),
       description: description.trim() || null,
+      image_url: finalImageUrl || null,
       event_date: startAt.toISOString(),
       event_end: endAt.toISOString(),
       location_type: locationType,
@@ -250,6 +291,29 @@ export default function EventForm({ groupId, userId, editEvent, onSuccess, onCan
         />
       </div>
 
+      <div className="field">
+        <label>Thumbnail image (optional)</label>
+        <div className="thumb-upload">
+          <div className="thumb-preview">
+            {(newImage?.preview || imageUrl)
+              ? <img src={newImage?.preview || imageUrl} alt="Event thumbnail preview" />
+              : <span>{imageBusy ? 'Preparing…' : '🖼 No image yet'}</span>}
+          </div>
+          <div className="thumb-actions">
+            <label className="btn btn-ghost thumb-pick">
+              {newImage || imageUrl ? 'Change image' : 'Choose image'}
+              <input type="file" accept="image/*" onChange={handleImageChosen} hidden />
+            </label>
+            {(newImage || imageUrl) && (
+              <button type="button" className="btn btn-ghost" onClick={removeImage}>Remove</button>
+            )}
+          </div>
+        </div>
+        <div className="field-hint" style={{ marginTop: 6, marginBottom: 0 }}>
+          Shown on the event card. Pictures are cropped to a 16:9 shape so every event looks the same.
+        </div>
+      </div>
+
       <h4 className="form-section-title">When</h4>
       <div className="form-grid">
         <div className="field">
@@ -311,8 +375,8 @@ export default function EventForm({ groupId, userId, editEvent, onSuccess, onCan
               hint={
                 lookingUp ? 'Looking up place name…'
                 : lookupFailed ? "Couldn't find a name for this spot — type one in above"
-                : latlng ? `📍 ${locationName || `${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}`}`
-                : 'Click the map to drop a pin'
+                : latlng ? `📍 ${locationName || `${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}`} — press Reset to move the pin`
+                : 'Click the map to drop a pin, or search for an address below'
               }
             />
           </div>
@@ -351,7 +415,7 @@ export default function EventForm({ groupId, userId, editEvent, onSuccess, onCan
       <h4 className="form-section-title">Labels</h4>
       <div className="field">
         <label>Help people find your event (optional, up to {MAX_LABELS})</label>
-        <LabelPicker selected={labels} onChange={setLabels} min={0} max={MAX_LABELS} />
+        <LabelPicker selected={labels} onChange={setLabels} min={0} max={MAX_LABELS} usage="events" />
       </div>
 
       <h4 className="form-section-title">Permissions</h4>

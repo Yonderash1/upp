@@ -126,7 +126,7 @@ export default function Notifications() {
     if (n.type === 'message_request' && n.actor_id && !pendingRequests.has(n.actor_id)) navigate(`/messages/${n.actor_id}`)
     if (n.type === 'group_event' && n.event_id) navigate(`/event/${n.event_id}`)
     else if (n.type === 'group_announcement' && n.group_id) navigate(`/groups/${n.group_id}`)
-    else if (n.type === 'event_changed' && n.event_id) navigate(`/event/${n.event_id}`)
+    else if ((n.type === 'event_changed' || n.type === 'event_cancelled') && n.event_id) navigate(`/event/${n.event_id}`)
     else if (n.type === 'connection_request' && n.actor_id) navigate(`/profile/${n.actor_id}`)
     // group_deleted / event_deleted: nothing left to open
   }
@@ -176,6 +176,16 @@ export default function Notifications() {
         <>
           <div className="notif-title">{n.title}</div>
           {n.group_name && <div className="notif-sub">Hosted by {n.group_name}</div>}
+        </>
+      )
+    } else if (n.type === 'event_cancelled') {
+      avatar = n.groups ? <GroupAvatar group={n.groups} size={44} /> : <div className="notif-icon">🚫</div>
+      const host = n.groups?.name || n.group_name
+      headline = <>An event you {n.detail === 'interested' ? 'were interested in' : 'were going to'} was cancelled</>
+      detail = (
+        <>
+          <div className="notif-title">{n.events?.title || n.title}</div>
+          {host && <div className="notif-sub">Hosted by {host}</div>}
         </>
       )
     } else if (n.type === 'message_request') {
@@ -251,7 +261,7 @@ export default function Notifications() {
                 className={`switch ${groupPosts ? 'on' : ''}`} onClick={toggleGroupPosts}
               ><span /></button>
             </div>
-            <div className="field-hint" style={{ margin: '12px 0 0' }}>Connection requests, message requests, changes to events you're going to, and deleted groups or events always appear here.</div>
+            <div className="field-hint" style={{ margin: '12px 0 0' }}>Connection requests, message requests, changes to events you're going to, cancelled events, and deleted groups or events always appear here.</div>
           </div>
         )}
 

@@ -1,7 +1,17 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
-export default function LabelPicker({ selected, onChange, error, min = 1, max = 5, placeholder = 'Search or create a label...' }) {
+// (LabelPicker `usage` prop) what the little count under each suggestion means
+//   'groups' – "In use by x groups"  (group create / settings)
+//   'events' – "In use by x detectable events"  (events the person is allowed to see)
+//   anything else – the older "x uses" count (profiles, onboarding)
+function usageText(usage, n) {
+  if (usage === 'groups') return `In use by ${n} ${n === 1 ? 'group' : 'groups'}`
+  if (usage === 'events') return `In use by ${n} detectable ${n === 1 ? 'event' : 'events'}`
+  return `${n} ${n === 1 ? 'use' : 'uses'}`
+}
+
+export default function LabelPicker({ selected, onChange, error, min = 1, max = 5, placeholder = 'Search or create a label...', usage = 'legacy' }) {
   const [query, setQuery] = useState('')
   const [suggestions, setSuggestions] = useState([])
   const [searching, setSearching] = useState(false)
@@ -33,20 +43,31 @@ export default function LabelPicker({ selected, onChange, error, min = 1, max = 
 
     if (!labels) { setSuggestions([]); setSearching(false); return }
 
-    // Count how many groups AND profiles use each label
-    const [{ data: groupCounts }, { data: profileCounts }] = await Promise.all([
-      supabase.from('group_label_assignments').select('label_id'),
-      supabase.from('profile_label_assignments').select('label_id')
-    ])
-
+    const ids = labels.map(l => l.id)
     const countMap = {}
-    ;[...(groupCounts || []), ...(profileCounts || [])].forEach(c => {
-      countMap[c.label_id] = (countMap[c.label_id] || 0) + 1
-    })
+    let countsKnown = true
+
+    if (usage === 'groups' || usage === 'events') {
+      const { data: counts, error: countErr } = await supabase.rpc(
+        usage === 'groups' ? 'label_group_counts' : 'label_event_counts',
+        { p_label_ids: ids }
+      )
+      if (countErr) { countsKnown = false; console.error('Label usage counts failed:', countErr) }
+      ;(counts || []).forEach(c => { countMap[c.label_id] = Number(c.uses) })
+    } else {
+      // Count how many groups AND profiles use each label
+      const [{ data: groupCounts }, { data: profileCounts }] = await Promise.all([
+        supabase.from('group_label_assignments').select('label_id'),
+        supabase.from('profile_label_assignments').select('label_id')
+      ])
+      ;[...(groupCounts || []), ...(profileCounts || [])].forEach(c => {
+        countMap[c.label_id] = (countMap[c.label_id] || 0) + 1
+      })
+    }
 
     setSuggestions(labels.map(l => ({
       ...l,
-      count: countMap[l.id] || 0,
+      count: countsKnown ? (countMap[l.id] || 0) : null,
       alreadySelected: selected.some(s => s.id === l.id)
     })))
     setSearching(false)
@@ -190,9 +211,9 @@ export default function LabelPicker({ selected, onChange, error, min = 1, max = 
                 >
                   <span style={{ fontSize: 14, fontWeight: 500 }}>{s.name}</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    {s.count > 0 && (
+                    {s.count != null && (usage === 'groups' || usage === 'events' || s.count > 0) && (
                       <span style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--bg3)', borderRadius: 20, padding: '2px 8px', fontWeight: 500 }}>
-                        {s.count} {s.count === 1 ? 'use' : 'uses'}
+                        {usageText(usage, s.count)}
                       </span>
                     )}
                     {s.alreadySelected && (

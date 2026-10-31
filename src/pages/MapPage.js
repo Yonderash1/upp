@@ -204,6 +204,7 @@ export default function MapPage() {
         .select('*, profiles(username), event_label_assignments(group_labels(id, name))')
         .not('lat', 'is', null)
         .not('lng', 'is', null)
+        .is('cancelled_at', null)
         .gte('event_date', new Date().toISOString()),
       supabase
         .from('connections')

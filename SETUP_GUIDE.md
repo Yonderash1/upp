@@ -104,3 +104,11 @@ If anything goes wrong, just copy the error message and ask Claude — paste exa
 
 Run `supabase-roles-channels.sql` once in the Supabase SQL Editor **before** deploying this version.
 It converts existing groups (Owner / Admin / Member roles are created for you) and adds channels.
+
+---
+
+## Event thumbnails, cancelling events & label counts
+
+Run `supabase.sql/supabase-event-upgrade.sql` once in the Supabase SQL Editor **before** deploying this version.
+It adds event images (a public `event-images` storage bucket), cancelled events (and the "event cancelled" notification),
+and the label usage counts. People with the **Edit events** permission in a group can cancel that group's events.

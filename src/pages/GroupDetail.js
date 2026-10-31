@@ -10,14 +10,13 @@ import GroupNav from '../components/GroupNav'
 import NewPostChooser from '../components/NewPostChooser'
 import Modal from '../components/Modal'
 import EventForm from '../components/EventForm'
-import EventLabels from '../components/EventLabels'
+import EventCard from '../components/EventCard'
 import GroupChannel from '../components/GroupChannel'
 import ChannelForm from '../components/ChannelForm'
 import ConfirmDialog from '../components/ConfirmDialog'
-import EventDistance from '../components/EventDistance'
 import { AudienceSelect } from '../components/EventPermissions'
-import { formatEventRange, eventKind } from '../lib/eventUtils'
-import { describeJoinAccess, getAttendState, getJoinStatus, audienceFromEvent, audienceToStored, audienceShort, EVENT_ROLE_SELECT } from '../lib/eventAccess'
+import { eventStatus, eventEndDate } from '../lib/eventUtils'
+import { audienceFromEvent, audienceToStored, audienceShort, EVENT_ROLE_SELECT } from '../lib/eventAccess'
 import { hasPerm, channelAccess } from '../lib/permissions'
 
 const joinModeLabel = { open: 'Open', request: 'Request to join', invite: 'Invite only' }
@@ -170,7 +169,7 @@ export default function GroupDetail() {
     const [groupRes, membersRes, eventsRes, announcementsRes, myRes, memberData, requestRes, myRequestRes, labelData, rolesRes, channelsRes] = await Promise.all([
       supabase.from('groups').select('*').eq('id', id).single(),
       supabase.from('group_members').select('*, profiles(id, username, avatar_url)').eq('group_id', id).order('joined_at', { ascending: true }),
-      supabase.from('events').select(`*, profiles(username), event_label_assignments(group_labels(id, name)), ${EVENT_ROLE_SELECT}`).eq('group_id', id).order('event_date', { ascending: true }).gte('event_date', new Date().toISOString()),
+      supabase.from('events').select(`*, profiles(username), event_label_assignments(group_labels(id, name)), ${EVENT_ROLE_SELECT}`).eq('group_id', id).order('event_date', { ascending: true }),
       supabase.from('announcements').select('*, profiles(username)').eq('group_id', id).order('created_at', { ascending: false }),
       supabase.from('group_members').select('role_id').eq('group_id', id).eq('user_id', user.id).maybeSingle(),
       supabase.from('group_members').select('user_id').eq('group_id', id),
@@ -291,6 +290,22 @@ export default function GroupDetail() {
     })
   }
 
+  function askCancelEvent(item) {
+    setDialog({
+      title: 'Cancel this event?', confirmLabel: 'Yes, cancel event', cancelLabel: 'Keep event', danger: true,
+      children: <>
+        <p>Are you sure you want to cancel <strong>{item.title}</strong>?</p>
+        <p><strong>All attending or interested users will be notified if this event is cancelled.</strong></p>
+        <p>The event won't be deleted — it will stay on the group page, greyed out and marked as cancelled.</p>
+      </>,
+      onConfirm: async () => {
+        const { error } = await supabase.rpc('cancel_event', { p_event: item.id })
+        if (error) return error.message
+        fetchAll()
+      }
+    })
+  }
+
   function askDeleteAnnouncement(item) {
     setDialog({
       title: 'Delete this announcement?', confirmLabel: 'Delete announcement', danger: true,
@@ -345,7 +360,13 @@ export default function GroupDetail() {
       .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
       .map(a => ({ ...a, _type: 'announcement' })),
     ...[...events]
+      .filter(e => eventStatus(e) !== 'ended')
       .sort((a, b) => new Date(a.event_date) - new Date(b.event_date))
+      .map(e => ({ ...e, _type: 'event' })),
+    // events that have already happened stay on the group page, below the upcoming ones
+    ...[...events]
+      .filter(e => eventStatus(e) === 'ended')
+      .sort((a, b) => eventEndDate(b) - eventEndDate(a))
       .map(e => ({ ...e, _type: 'event' }))
   ]
 
@@ -501,82 +522,43 @@ export default function GroupDetail() {
           </p>
         ) : (
           feed.map(item => item._type === 'event' ? (() => {
-            const kind = eventKind(item)
+            const status = eventStatus(item)
+            const canCancel = can('edit_events') && (status === 'upcoming' || status === 'live')
             return (
-            <div key={`event-${item.id}`}>
-              <div
-                id={`event-${item.id}`}
-                className={`event-card post-card ${kind.tone === 'online' ? 'post-online' : 'post-event'} ${String(item.id) === highlightId ? 'event-highlight' : ''}`}
-                onClick={() => navigate(`/event/${item.id}`)}
-              >
-                <div className="post-header">
-                  <span className={`post-badge ${kind.tone}`}>{kind.icon} {kind.label}</span>
-                  <span className="post-time">
-                    {formatDistanceToNow(new Date(item.created_at || item.event_date), { addSuffix: true })}
-                  </span>
+            <EventCard
+              key={`event-${item.id}`}
+              domId={`event-${item.id}`}
+              event={{ ...item, groups: group }}
+              myRank={myRole ? myRole.rank : null}
+              counts={{ going: attendCounts[item.id] || 0, interested: interestCounts[item.id] || 0 }}
+              isGoing={attendingIds.has(item.id)}
+              isInterested={interestIds.has(item.id)}
+              onToggleGoing={e => toggleAttend(e, item.id)}
+              onToggleInterested={e => toggleInterest(e, item.id)}
+              highlight={String(item.id) === highlightId}
+              actions={(can('edit_events') || can('delete_events')) && (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {can('edit_events') && (
+                    <button className="btn btn-ghost" style={{ padding: '5px 12px', fontSize: 12 }}
+                      onClick={() => { setEditingEvent(item); setComposer(null) }}>
+                      ✏ Edit
+                    </button>
+                  )}
+                  {canCancel && (
+                    <button className="btn btn-ghost" style={{ padding: '5px 12px', fontSize: 12, color: '#e67e22', borderColor: '#e67e22' }}
+                      onClick={() => askCancelEvent(item)}>
+                      🚫 Cancel event
+                    </button>
+                  )}
+                  {can('delete_events') && (
+                    <button className="btn btn-ghost" style={{ padding: '5px 12px', fontSize: 12, color: '#e74c3c', borderColor: '#e74c3c' }}
+                      onClick={() => askDeleteEvent(item)}>
+                      🗑 Delete
+                    </button>
+                  )}
                 </div>
-                <EventLabels event={item} />
-                <h3 className="event-title">{item.title}</h3>
-                <div className="event-meta">
-                  <span>🗓 {formatEventRange(item.event_date, item.event_end)}</span>
-                  <span>{item.location_type === 'online' ? '💻' : '📍'} {item.location_name}</span>
-                  <EventDistance event={item} />
-                  <span>🎟 {describeJoinAccess(item).replace('This event is open', 'Open')}</span>
-                </div>
-                {item.description && <p className="event-desc">{item.description}</p>}
-                {(() => {
-                  const myRank = myRole ? myRole.rank : null
-                  const going = attendingIds.has(item.id)
-                  const interested = interestIds.has(item.id)
-                  const count = attendCounts[item.id] || 0
-                  const interestedCount = interestCounts[item.id] || 0
-                  const state = getAttendState({ event: item, myRank, isAttending: going, attendeeCount: count })
-                  const canInterest = !going && getJoinStatus(item, myRank) === 'ok'
-                  return (
-                    <div className="group-event-actions" onClick={e => e.stopPropagation()}>
-                      <button
-                        className={`attend-btn ${going ? 'attending' : ''}`}
-                        disabled={!state.canClick}
-                        onClick={e => toggleAttend(e, item.id)}
-                      >
-                        {going ? '✓ Going' : state.canClick ? "I'm going" : state.label}
-                      </button>
-                      {canInterest && (
-                        <button
-                          className={`interest-btn ${interested ? 'interested' : ''}`}
-                          onClick={e => toggleInterest(e, item.id)}
-                        >
-                          {interested ? '★ Interested' : '☆ Interested'}
-                        </button>
-                      )}
-                      <span className="event-counts">
-                        <span className="group-event-count">
-                          {item.max_attendees != null ? `${count} / ${item.max_attendees} going` : `${count} going`}
-                        </span>
-                        <span className="group-event-count">{interestedCount} interested</span>
-                      </span>
-                    </div>
-                  )
-                })()}
-                {(can('edit_events') || can('delete_events')) && (
-                  <div style={{ display: 'flex', gap: 8, marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}
-                    onClick={e => e.stopPropagation()}>
-                    {can('edit_events') && (
-                      <button className="btn btn-ghost" style={{ padding: '5px 12px', fontSize: 12 }}
-                        onClick={() => { setEditingEvent(item); setComposer(null) }}>
-                        ✏ Edit
-                      </button>
-                    )}
-                    {can('delete_events') && (
-                      <button className="btn btn-ghost" style={{ padding: '5px 12px', fontSize: 12, color: '#e74c3c', borderColor: '#e74c3c' }}
-                        onClick={() => askDeleteEvent(item)}>
-                        🗑 Delete
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
+              )}
+            />
             )
           })() : (
             <div key={`announcement-${item.id}`} className="event-card post-card post-announcement">

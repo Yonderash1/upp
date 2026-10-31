@@ -8,7 +8,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { formatDistanceToNow } from 'date-fns'
 import EventLabels from '../components/EventLabels'
 import Linkify from '../components/Linkify'
-import { formatEventRange } from '../lib/eventUtils'
+import { formatEventRange, eventStatus } from '../lib/eventUtils'
 import { getAttendState, getJoinStatus, describeJoinAccess, EVENT_ROLE_SELECT } from '../lib/eventAccess'
 
 delete L.Icon.Default.prototype._getIconUrl
@@ -144,6 +144,8 @@ export default function EventDetail() {
   const interestedCount = interests.filter(uid => !attendees.some(a => a.user_id === uid)).length
   const isInterested = !isAttending && interests.includes(user.id)
   const isFull = event.max_attendees != null && attendees.length >= event.max_attendees
+  const status = eventStatus(event)
+  const closed = status === 'cancelled' || status === 'ended'
 
   return (
     <div className="page">
@@ -151,6 +153,14 @@ export default function EventDetail() {
         <button className="btn btn-ghost" style={{ marginBottom: 20, padding: '7px 14px', fontSize: 13 }} onClick={() => navigate(-1)}>
           ← Back
         </button>
+
+        {status === 'cancelled' && <div className="ec-banner cancelled detail-banner">🚫 This event has been cancelled</div>}
+        {status === 'ended' && <div className="ec-banner ended detail-banner">⏱ This event has already happened</div>}
+
+        <div className={closed ? 'detail-closed' : ''}>
+        {event.image_url && (
+          <div className="detail-thumb"><img src={event.image_url} alt="" /></div>
+        )}
 
         {event.lat && event.lng && (
           <div className="detail-map">
@@ -222,14 +232,15 @@ export default function EventDetail() {
           ⭐ {interestedCount} {interestedCount === 1 ? 'person' : 'people'} interested
         </p>
 
-        <button className={`big-attend-btn ${isAttending ? 'attending' : ''}`} disabled={!attendState.canClick} onClick={toggleAttend}>
+        <button className={`big-attend-btn ${isAttending ? 'attending' : ''}`} disabled={closed || !attendState.canClick} onClick={toggleAttend}>
           {isAttending ? "✓ You're going — click to cancel" : attendState.canClick ? "I'm going to this!" : attendState.label}
         </button>
-        {canShowInterest && (
+        {canShowInterest && !closed && (
           <button className={`big-interest-btn ${isInterested ? 'interested' : ''}`} onClick={toggleInterest}>
             {isInterested ? "★ You're interested — click to remove" : "☆ I'm interested"}
           </button>
         )}
+        </div>
       </div>
     </div>
   )

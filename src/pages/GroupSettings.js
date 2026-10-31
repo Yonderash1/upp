@@ -263,6 +263,7 @@ export default function GroupSettings() {
               selected={selectedLabels}
               onChange={setSelectedLabels}
               error={labelError}
+              usage="groups"
             />
           </div>
 

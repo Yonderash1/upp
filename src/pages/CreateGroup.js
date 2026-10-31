@@ -207,6 +207,7 @@ export default function CreateGroup() {
                 selected={selectedLabels}
                 onChange={setSelectedLabels}
                 error={labelError}
+                usage="groups"
               />
             </div>
 
